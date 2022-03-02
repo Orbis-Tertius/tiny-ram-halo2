@@ -7,9 +7,14 @@
       nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
       rust-overlay.url = "github:oxalica/rust-overlay";
       flake-utils.url = "github:numtide/flake-utils";
+      flake-compat-ci.url = "github:hercules-ci/flake-compat-ci";
+      flake-compat = {
+        url = "github:edolstra/flake-compat";
+        flake = false;
+      };
     };
 
-  outputs = { cargo2nix, flake-utils, nixpkgs, rust-overlay, ... }:
+  outputs = { self, cargo2nix, flake-utils, nixpkgs, rust-overlay, flake-compat, flake-compat-ci, ... }:
     with builtins;
     flake-utils.lib.eachDefaultSystem
       (system:
@@ -101,6 +106,11 @@
                   export RUST_SRC_PATH=~/.rustup/toolchains/${rustChannel}-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/
                 '';
             };
+
+          ciNix = flake-compat-ci.lib.recurseIntoFlakeWith {
+            flake = self;
+            systems = [ "x86_64-linux" ];
+          };
         }
       );
 }
