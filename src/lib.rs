@@ -541,13 +541,6 @@ proptest! {
         prop_assume!(c != a & b);
         gen_proof_and_verify::<16>(a, b, c)
     }
-
-    #[test]
-    #[should_panic]
-    fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
-        prop_assume!(c != a & b);
-        gen_proof_and_verify::<24>(a, b, c)
-    }
 }
 
 proptest! {
@@ -568,6 +561,12 @@ proptest! {
         gen_proof_and_verify::<24>(a, b, c)
     }
 
+    #[test]
+    #[should_panic]
+    fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
+        prop_assume!(c != a & b);
+        gen_proof_and_verify::<24>(a, b, c)
+    }
 }
 
 // It's used in the proptests

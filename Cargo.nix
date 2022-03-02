@@ -24,7 +24,7 @@ let
 in let
   inherit (rustLib) fetchCratesIo fetchCrateLocal fetchCrateGit fetchCrateAlternativeRegistry expandFeatures decideProfile genDrvsByProfile;
   profilesByName = {
-    test = builtins.fromTOML "debug-assertions = true\nopt-level = 3\n";
+    test = builtins.fromTOML "debug-assertions = true\nlto = true\nopt-level = 3\n";
   };
   rootFeatures' = expandFeatures rootFeatures;
   overridableMkRustCrate = f:
