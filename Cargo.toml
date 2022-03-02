@@ -1,0 +1,21 @@
+[package]
+name = "tiny-ram-halo2"
+version = "0.1.0"
+edition = "2021"
+
+[profile.test]
+opt-level = 3
+debug-assertions = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pasta_curves = "0.3.0"
+rand_core = { version = "0.6", features = [ "getrandom" ] }
+plotters = { version = "0.3.0" }
+proptest = "1.0.0"
+
+[dependencies.halo2_proofs]
+git = "https://github.com/zcash/halo2.git"
+rev = "c12620c598a15f6686767b4cb6ba145396d6d4df"
+features = ["dev-graph"]
