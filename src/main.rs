@@ -1,6 +1,6 @@
 use halo2_proofs::dev::MockProver;
 use pasta_curves::Fp;
-use tiny_ram_halo2::MyCircuit;
+use tiny_ram_halo2::gadgets::and::MyCircuit;
 
 fn main() {
     const WORD_BITS: u32 = 8;
