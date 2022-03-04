@@ -51,8 +51,14 @@
                         propagatedBuildInputs = drv.propagatedBuildInputs or [ ] ++ [ pkgs.freetype ];
                       };
                     };
+                    font-kit = pkgs.rustBuilder.rustLib.makeOverride {
+                      name = "font-kit";
+                      overrideAttrs = drv: {
+                        propagatedNativeBuildInputs = drv.propagatedNativeBuildInputs or [ ] ++ [ pkgs.noto-fonts pkgs.fontconfig ];
+                      };
+                    };
                   in
-                  pkgs: pkgs.rustBuilder.overrides.all ++ [ expat-sys freetype-sys ];
+                  pkgs: pkgs.rustBuilder.overrides.all ++ [ expat-sys freetype-sys font-kit ];
               };
         in
         rec
@@ -69,7 +75,6 @@
               # derivation.s
               ci = pkgs.rustBuilder.runTests rustPkgs.workspace.tiny-ram-halo2 {
                 # Add `depsBuildBuild` test-only deps here, if any.
-                depsBuildBuild = [ pkgs.noto-fonts ];
               };
               shell = devShell;
             };
