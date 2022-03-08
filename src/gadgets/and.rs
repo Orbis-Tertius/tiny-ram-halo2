@@ -4,11 +4,10 @@ use halo2_proofs::{
     dev::MockProver,
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector,
-        TableColumn,
     },
     poly::Rotation,
 };
-use pasta_curves::{group::ff::PrimeField, Fp};
+use pasta_curves::Fp;
 use std::marker::PhantomData;
 
 pub trait NumericInstructions<F: FieldExt>: Chip<F> {
@@ -24,12 +23,6 @@ pub trait NumericInstructions<F: FieldExt>: Chip<F> {
         a: Self::Word,
         b: Self::Word,
     ) -> Result<Self::Word, Error>;
-
-    fn verify_decompose(
-        &self,
-        layouter: impl Layouter<F>,
-        c: Self::Word,
-    ) -> Result<(Self::Word, Self::Word), Error>;
 
     fn compose(
         &self,
@@ -66,14 +59,11 @@ pub struct AndConfig {
     /// This is the public input (instance) column.
     instance: Column<Instance>,
 
-    even_bits: TableColumn,
-
     // We need a selector to enable the add gate, so that we aren't placing
     // any constraints on cells where `NumericInstructions::add` is not being used.
     // This is important when building larger circuits, where columns are used by
     // multiple sets of instructions.
     s_add: Selector,
-    s_decompose: Selector,
     s_compose: Selector,
 }
 
@@ -99,7 +89,6 @@ impl<F: FieldExt, const WORD_BITS: u32> AndChip<F, WORD_BITS> {
         let s_add = meta.selector();
         let s_decompose = meta.complex_selector();
         let s_compose = meta.selector();
-        let even_bits = meta.lookup_table_column();
 
         meta.create_gate("add", |meta| {
             let lhs = meta.query_advice(advice[0], Rotation::cur());
@@ -143,70 +132,13 @@ impl<F: FieldExt, const WORD_BITS: u32> AndChip<F, WORD_BITS> {
             vec![s_compose * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
         });
 
-        let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_decompose);
-            let a = meta.query_advice(advice[0], Rotation::cur());
-
-            vec![(lookup * a, even_bits)]
-        });
-
-        let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_decompose);
-            let b = meta.query_advice(advice[1], Rotation::cur());
-
-            vec![(lookup * b, even_bits)]
-        });
-
         AndConfig {
             advice,
             instance,
-            even_bits,
             s_add,
-            s_decompose,
             s_compose,
         }
     }
-
-    // Allocates all even bits in a a table for the word size AND_BITS.
-    // `2^(WORD_BITS/2)` rows of the constraint system.
-    fn alloc_table(&self, layouter: &mut impl Layouter<Fp>) -> Result<(), Error> {
-        layouter.assign_table(
-            || "even bits table",
-            |mut table| {
-                for i in 0..2usize.pow(WORD_BITS / 2) {
-                    table.assign_cell(
-                        || format!("even_bits row {}", i),
-                        self.config.even_bits,
-                        i,
-                        || Ok(Fp::from(even_bits_at(i) as u64)),
-                    )?;
-                }
-                Ok(())
-            },
-        )
-    }
-}
-
-fn even_bits_at(mut i: usize) -> usize {
-    let mut r = 0;
-    let mut c = 0;
-
-    while i != 0 {
-        let lower_bit = i % 2;
-        r += lower_bit * 4usize.pow(c);
-        i >>= 1;
-        c += 1;
-    }
-
-    r
-}
-
-#[test]
-fn even_bits_at_test() {
-    assert_eq!(0b0, even_bits_at(0));
-    assert_eq!(0b1, even_bits_at(1));
-    assert_eq!(0b100, even_bits_at(2));
-    assert_eq!(0b101, even_bits_at(3));
 }
 
 impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for AndChip<F, WORD_BITS> {
@@ -292,50 +224,6 @@ impl<const WORD_BITS: u32> NumericInstructions<Fp> for AndChip<Fp, WORD_BITS> {
         )
     }
 
-    fn verify_decompose(
-        &self,
-        mut layouter: impl Layouter<Fp>,
-        c: Self::Word,
-    ) -> Result<(Self::Word, Self::Word), Error> {
-        let config = self.config();
-
-        layouter.assign_region(
-            || "decompose",
-            |mut region: Region<'_, Fp>| {
-                // We only want to use a single addition gate in this region,
-                // so we enable it at region offset 0; this means it will constrain
-                // cells at offsets 0 and 1.
-                config.s_decompose.enable(&mut region, 0)?;
-
-                let o_oe = c.0.value().cloned().map(decompose);
-                let e_cell = region
-                    .assign_advice(
-                        || "even bits",
-                        config.advice[0],
-                        0,
-                        || o_oe.map(|oe| oe.0).ok_or(Error::Synthesis),
-                    )
-                    .map(Word)?;
-
-                let o_cell = region
-                    .assign_advice(
-                        || "odd bits",
-                        config.advice[1],
-                        0,
-                        || o_oe.map(|oe| oe.1).ok_or(Error::Synthesis),
-                    )
-                    .map(Word)?;
-
-                // The inputs we've been given could be located anywhere in the circuit,
-                // but we can only rely on relative offsets inside this region. So we
-                // assign new cells inside the region and constrain them to have the
-                // same values as the inputs.
-                c.0.copy_advice(|| "out", &mut region, config.advice[0], 1)?;
-                Ok((e_cell, o_cell))
-            },
-        )
-    }
-
     fn compose(
         &self,
         mut layouter: impl Layouter<Fp>,
@@ -392,7 +280,7 @@ pub struct MyCircuit<F: FieldExt, const WORD_BITS: u32 = 8> {
 // impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
 impl<const WORD_BITS: u32> Circuit<Fp> for MyCircuit<Fp, WORD_BITS> {
     // Since we are using a single chip for everything, we can just reuse its config.
-    type Config = AndConfig;
+    type Config = (AndConfig, EvenBitsConfig);
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -410,7 +298,10 @@ impl<const WORD_BITS: u32> Circuit<Fp> for MyCircuit<Fp, WORD_BITS> {
         // Create a fixed column to load constants.
         let constant = meta.fixed_column();
 
-        AndChip::<Fp, WORD_BITS>::configure(meta, advice, instance, constant)
+        (
+            AndChip::<Fp, WORD_BITS>::configure(meta, advice, instance, constant),
+            EvenBitsChip::<Fp, WORD_BITS>::configure(meta, advice),
+        )
     }
 
     fn synthesize(
@@ -419,78 +310,49 @@ impl<const WORD_BITS: u32> Circuit<Fp> for MyCircuit<Fp, WORD_BITS> {
         // mut layouter: impl Layouter<F>,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-        // let field_chip = AndChip::<F>::construct(config);
-        let field_chip = AndChip::<Fp, WORD_BITS>::construct(config);
-        field_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
+        let and_chip = AndChip::<Fp, WORD_BITS>::construct(config.0);
+        let even_bits_chip = EvenBitsChip::<Fp, WORD_BITS>::construct(config.1);
+        even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
 
         // Load our private values into the circuit.
         // index 0
-        let a = field_chip.load_private(layouter.namespace(|| "load a"), self.a)?;
+        let a = and_chip.load_private(layouter.namespace(|| "load a"), self.a)?;
         // index 1
-        let b = field_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
+        let b = and_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
 
         // index 2
-        let (ae, ao) = field_chip.verify_decompose(layouter.namespace(|| "a decomposition"), a)?;
+        let (ae, ao) = even_bits_chip.decompose(layouter.namespace(|| "a decomposition"), a.0)?;
 
         // index 3
-        let (be, bo) = field_chip.verify_decompose(layouter.namespace(|| "b decomposition"), b)?;
+        let (be, bo) = even_bits_chip.decompose(layouter.namespace(|| "b decomposition"), b.0)?;
 
         // index 4
-        let e = field_chip.add(layouter.namespace(|| "ae + be"), ae, be)?;
+        let e = and_chip.add(layouter.namespace(|| "ae + be"), Word(ae.0), Word(be.0))?;
         // index 5
-        let o = field_chip.add(layouter.namespace(|| "ao + be"), ao, bo)?;
+        let o = and_chip.add(layouter.namespace(|| "ao + be"), Word(ao.0), Word(bo.0))?;
 
         // // index 6
-        let (_ee, eo) = field_chip.verify_decompose(layouter.namespace(|| "e decomposition"), e)?;
+        let (_ee, eo) = even_bits_chip.decompose(layouter.namespace(|| "e decomposition"), e.0)?;
 
         // index 7
-        let (_oe, oo) = field_chip.verify_decompose(layouter.namespace(|| "o decomposition"), o)?;
+        let (_oe, oo) = even_bits_chip.decompose(layouter.namespace(|| "o decomposition"), o.0)?;
 
         // // index 8
-        let a_and_b = field_chip.compose(layouter.namespace(|| "compose eo and oo"), eo, oo)?;
+        let a_and_b = and_chip.compose(
+            layouter.namespace(|| "compose eo and oo"),
+            Word(eo.0),
+            Word(oo.0),
+        )?;
 
         // Expose the result as a public input to the circuit.
-        field_chip.expose_public(layouter.namespace(|| "expose a_and_b"), a_and_b, 0)
+        and_chip.expose_public(layouter.namespace(|| "expose a_and_b"), a_and_b, 0)
     }
-}
-
-fn decompose(word: Fp) -> (Fp, Fp) {
-    let mut even_only = word.to_repr();
-    even_only.iter_mut().for_each(|bits| {
-        *bits &= 0b01010101;
-    });
-
-    let mut odd_only = word.to_repr();
-    odd_only.iter_mut().for_each(|bits| {
-        *bits &= 0b10101010;
-    });
-
-    let even_only = Fp::from_repr(even_only).unwrap();
-    let odd_only = Fp::from_repr(odd_only).unwrap();
-
-    (even_only, Fp::from_u128(odd_only.get_lower_128() >> 1))
-}
-
-#[test]
-fn decompose_test_even_odd() {
-    let odds = 0xAAAA;
-    let evens = 0x5555;
-    let (e, o) = decompose(Fp::from_u128(odds));
-    assert_eq!(e.get_lower_128(), 0);
-    assert_eq!(o.get_lower_128(), odds >> 1);
-    let (e, o) = decompose(Fp::from_u128(evens));
-    assert_eq!(e.get_lower_128(), evens);
-    assert_eq!(o.get_lower_128(), 0);
 }
 
 use proptest::prelude::*;
-proptest! {
-    #[test]
-    fn decompose_test(a in 0..u128::MAX) {
-        let a = Fp::from_u128(a);
-        decompose(a);
-    }
 
+use super::tables::even_bits::{EvenBitsChip, EvenBitsConfig, EvenBitsLookup};
+proptest! {
     #[test]
     fn fp_u128_test(n in 0..u128::MAX) {
         let a = Fp::from_u128(n);
