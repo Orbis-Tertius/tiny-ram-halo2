@@ -272,13 +272,13 @@ impl<const WORD_BITS: u32> NumericInstructions<Fp> for AndChip<Fp, WORD_BITS> {
 /// they won't have any value during key generation. During proving, if any of these
 /// were `None` we would get an error.
 #[derive(Default)]
-pub struct MyCircuit<F: FieldExt, const WORD_BITS: u32 = 8> {
+pub struct AndCircuit<F: FieldExt, const WORD_BITS: u32 = 8> {
     pub a: Option<F>,
     pub b: Option<F>,
 }
 
 // impl<F: FieldExt> Circuit<F> for MyCircuit<F> {
-impl<const WORD_BITS: u32> Circuit<Fp> for MyCircuit<Fp, WORD_BITS> {
+impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
     // Since we are using a single chip for everything, we can just reuse its config.
     type Config = (AndConfig, EvenBitsConfig);
     type FloorPlanner = SimpleFloorPlanner;
@@ -434,7 +434,7 @@ proptest! {
 #[allow(unused)]
 fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64) {
     let k = 1 + WORD_BITS / 2;
-    let circuit: MyCircuit<Fp, WORD_BITS> = MyCircuit {
+    let circuit: AndCircuit<Fp, WORD_BITS> = AndCircuit {
         a: Some(Fp::from(a)),
         b: Some(Fp::from(b)),
     };
@@ -456,7 +456,7 @@ fn zeros_mock_prover_test() {
     let a = 0;
     let b = 0;
     let k = 1 + WORD_BITS / 2;
-    let circuit = MyCircuit::<Fp, WORD_BITS> {
+    let circuit = AndCircuit::<Fp, WORD_BITS> {
         a: Some(Fp::from(a)),
         b: Some(Fp::from(b)),
     };
@@ -477,7 +477,7 @@ fn zeros_mock_prover_test() {
 #[allow(unused)]
 fn gen_proof_and_verify<const WORD_BITS: u32>(a: u64, b: u64, c: u64) {
     let k = 1 + WORD_BITS / 2;
-    let circuit: MyCircuit<Fp, WORD_BITS> = MyCircuit {
+    let circuit: AndCircuit<Fp, WORD_BITS> = AndCircuit {
         a: Some(Fp::from(a)),
         b: Some(Fp::from(b)),
     };
@@ -537,7 +537,7 @@ fn circuit_layout_test() {
     let b = Fp::from(B);
 
     // Instantiate the circuit with the private inputs.
-    let circuit = MyCircuit::<Fp, WORD_BITS> {
+    let circuit = AndCircuit::<Fp, WORD_BITS> {
         a: Some(a),
         b: Some(b),
     };
