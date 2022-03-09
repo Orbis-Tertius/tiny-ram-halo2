@@ -75,6 +75,13 @@
               # derivation.s
               ci = pkgs.rustBuilder.runTests rustPkgs.workspace.tiny-ram-halo2 {
                 # Add `depsBuildBuild` test-only deps here, if any.
+
+                FONTCONFIG_FILE =
+                  with pkgs;
+                  makeFontsConf
+                    { inherit fontconfig;
+                      fontDirectories = [ "${noto-fonts}" ];
+                    };
               };
               shell = devShell;
             };
