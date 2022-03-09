@@ -1,6 +1,6 @@
 use halo2_proofs::dev::MockProver;
 use pasta_curves::Fp;
-use tiny_ram_halo2::gadgets::and::MyCircuit;
+use tiny_ram_halo2::gadgets::and::AndCircuit;
 
 fn main() {
     const WORD_BITS: u32 = 8;
@@ -17,7 +17,7 @@ fn main() {
     let c = Fp::from(A & B);
 
     // Instantiate the circuit with the private inputs.
-    let circuit = MyCircuit::<Fp, WORD_BITS> {
+    let circuit = AndCircuit::<Fp, WORD_BITS> {
         a: Some(a),
         b: Some(b),
     };
