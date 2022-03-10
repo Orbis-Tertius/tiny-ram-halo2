@@ -58,7 +58,7 @@ pub struct EvenBitsConfig {
 }
 
 impl EvenBitsConfig {
-    fn load_private<F: FieldExt>(
+    pub fn load_private<F: FieldExt>(
         &self,
         mut layouter: impl Layouter<F>,
         value: Option<F>,
@@ -138,7 +138,7 @@ impl<F: FieldExt, const WORD_BITS: u32> EvenBitsChip<F, WORD_BITS> {
         }
     }
 
-    // Allocates all even bits in a a table for the word size AND_BITS.
+    // Allocates all even bits in a a table for the word size WORD_BITS.
     // `2^(WORD_BITS/2)` rows of the constraint system.
     pub fn alloc_table(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         layouter.assign_table(
@@ -208,13 +208,13 @@ impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F> for EvenBitsChip<F, WO
             |mut region: Region<'_, F>| {
                 config.s_decompose.enable(&mut region, 0)?;
 
-                let o_oe = c.value().cloned().map(decompose);
+                let o_eo = c.value().cloned().map(decompose);
                 let e_cell = region
                     .assign_advice(
                         || "even bits",
                         config.advice[0],
                         0,
-                        || o_oe.map(|oe| *oe.0).ok_or(Error::Synthesis),
+                        || o_eo.map(|eo| *eo.0).ok_or(Error::Synthesis),
                     )
                     .map(EvenBits)?;
 
@@ -223,7 +223,7 @@ impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F> for EvenBitsChip<F, WO
                         || "odd bits",
                         config.advice[1],
                         0,
-                        || o_oe.map(|oe| *oe.1).ok_or(Error::Synthesis),
+                        || o_eo.map(|eo| *eo.1).ok_or(Error::Synthesis),
                     )
                     .map(OddBits)?;
 
@@ -328,13 +328,11 @@ mod mem_test {
             field_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
 
             // Load our private values into the circuit.
-            // index 0
             let a = field_chip
                 .config()
                 .load_private(layouter.namespace(|| "load input"), self.input)?;
 
-            // index 2
-            let (ae, ao) = field_chip.decompose(layouter.namespace(|| "a decomposition"), a)?;
+            let (_ae, _ao) = field_chip.decompose(layouter.namespace(|| "a decomposition"), a)?;
 
             Ok(())
         }
