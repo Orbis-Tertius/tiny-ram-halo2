@@ -9,5 +9,9 @@ pub struct ProgConfig<const REG_COUNT: usize> {
     instruction: Column<Advice>,
     immediate: Column<Advice>,
 
+    // aux
+    s: Column<Advice>,
+    l: Column<Advice>,
+
     temp_vars: TempVarSelectors<REG_COUNT>,
 }

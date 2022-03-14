@@ -3,7 +3,8 @@ use halo2_proofs::{
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
     dev::MockProver,
     plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector,
+        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
+        Instance, Selector,
     },
     poly::Rotation,
 };
@@ -307,7 +308,6 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
     fn synthesize(
         &self,
         config: Self::Config,
-        // mut layouter: impl Layouter<F>,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
         let and_chip = AndChip::<Fp, WORD_BITS>::construct(config.0);
@@ -352,6 +352,16 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
 use proptest::prelude::*;
 
 use super::tables::even_bits::{EvenBitsChip, EvenBitsConfig, EvenBitsLookup};
+
+prop_compose! {
+  fn valid_triple(word_bits: u32)
+          (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
+          -> (u64, u64, u64) {
+    let c = a & b;
+    (a, b, c)
+  }
+}
+
 proptest! {
     #[test]
     fn fp_u128_test(n in 0..u128::MAX) {
@@ -369,13 +379,12 @@ proptest! {
 
 proptest! {
     #![proptest_config(ProptestConfig {
-      cases: 50, .. ProptestConfig::default()
+      cases: 20, .. ProptestConfig::default()
     })]
 
     #[test]
-    fn all_8_bit_words_test(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
-        let c = a & b;
-        gen_proof_and_verify::<8>(a, b, c)
+    fn all_8_bit_words_test(s in prop::collection::vec(valid_triple(8), 10)) {
+        gen_proofs_and_verify::<8>(&s)
     }
 
     #[test]
@@ -384,23 +393,23 @@ proptest! {
     }
 
     #[test]
-    fn all_16_bit_words_test(a in 0..2u64.pow(16), b in 0..2u64.pow(16)) {
-        let c = a & b;
-        gen_proof_and_verify::<16>(a, b, c)
+    fn all_16_bit_words_test(s in prop::collection::vec(valid_triple(16), 10)) {
+        gen_proofs_and_verify::<16>(&s)
     }
 
     #[test]
     #[should_panic]
     fn all_8_bit_words_test_bad_proof(a in 0..2u64.pow(8), b in 0..2u64.pow(8), c in 0..2u64.pow(8)) {
         prop_assume!(c != a & b);
-        gen_proof_and_verify::<8>(a, b, c)
+        gen_proofs_and_verify::<8>(&[(a, b, c)])
     }
 
+    // TODO mix valid and invalid
     #[test]
     #[should_panic]
     fn all_16_bit_words_test_bad_proof(a in 0..2u64.pow(16), b in 0..2u64.pow(16), c in 0..2u64.pow(16)) {
         prop_assume!(c != a & b);
-        gen_proof_and_verify::<16>(a, b, c)
+        gen_proofs_and_verify::<16>(&[(a, b, c)])
     }
 }
 
@@ -408,7 +417,7 @@ proptest! {
     // The case number was picked to run all tests in about 60 seconds on my machine.
     // TODO use `plonk::BatchVerifier` to speed up tests.
     #![proptest_config(ProptestConfig {
-      cases: 20, .. ProptestConfig::default()
+      cases: 10, .. ProptestConfig::default()
     })]
 
     #[test]
@@ -417,16 +426,15 @@ proptest! {
     }
 
     #[test]
-    fn all_24_bit_words_test(a in 0..2u64.pow(24), b in 0..2u64.pow(24)) {
-        let c = a & b;
-        gen_proof_and_verify::<24>(a, b, c)
+    fn all_24_bit_words_test(s in prop::collection::vec(valid_triple(24), 10)) {
+        gen_proofs_and_verify::<24>(&s)
     }
 
     #[test]
     #[should_panic]
     fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
         prop_assume!(c != a & b);
-        gen_proof_and_verify::<24>(a, b, c)
+        gen_proofs_and_verify::<24>(&[(a, b, c)])
     }
 }
 
@@ -475,18 +483,7 @@ fn zeros_mock_prover_test() {
 // TODO move into test module
 // It's used in the proptests
 #[allow(unused)]
-fn gen_proof_and_verify<const WORD_BITS: u32>(a: u64, b: u64, c: u64) {
-    let k = 1 + WORD_BITS / 2;
-    let circuit: AndCircuit<Fp, WORD_BITS> = AndCircuit {
-        a: Some(Fp::from(a)),
-        b: Some(Fp::from(b)),
-    };
-
-    let c = Fp::from(c);
-
-    // Arrange the public input. We expose the bitwise AND result in row 0
-    // of the instance column, so we position it there in our public inputs.
-
+fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, u64)]) {
     use halo2_proofs::{
         plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
         poly::commitment::Params,
@@ -495,34 +492,49 @@ fn gen_proof_and_verify<const WORD_BITS: u32>(a: u64, b: u64, c: u64) {
     use pasta_curves::{vesta, EqAffine};
     use rand_core::OsRng;
 
+    let k = 1 + WORD_BITS / 2;
     let params: Params<EqAffine> = halo2_proofs::poly::commitment::Params::new(k);
-    let vk = keygen_vk(&params, &circuit).unwrap();
+    let empty_circuit = AndCircuit::<Fp, WORD_BITS>::default();
+    let vk = keygen_vk(&params, &empty_circuit).unwrap();
 
-    let pk = keygen_pk(&params, vk, &circuit).unwrap();
-    let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
+    let pk = keygen_pk(&params, vk, &empty_circuit).unwrap();
 
-    create_proof(
-        &params,
-        &pk,
-        &[circuit],
-        &[&[&[c]]],
-        &mut OsRng,
-        &mut transcript,
-    )
-    .expect("Failed to create proof");
+    let proofs: Vec<(Vec<u8>, Fp)> = inputs
+        .iter()
+        .map(|(a, b, c)| {
+            let circuit = AndCircuit::<Fp, WORD_BITS> {
+                a: Some(Fp::from(*a)),
+                b: Some(Fp::from(*b)),
+            };
+            let c = Fp::from(*c);
 
-    let proof = transcript.finalize();
+            let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
+            create_proof(
+                &params,
+                &pk,
+                &[circuit],
+                &[&[&[c]]],
+                &mut OsRng,
+                &mut transcript,
+            )
+            .expect("Failed to create proof");
 
-    let mut transcript = Blake2bRead::init(&proof[..]);
+            let proof: Vec<u8> = transcript.finalize();
+            (proof, c)
+        })
+        .collect();
 
-    verify_proof(
-        &params,
-        pk.get_vk(),
-        SingleVerifier::new(&params),
-        &[&[&[c]]],
-        &mut transcript,
-    )
-    .expect("could not verify_proof")
+    let mut verifier = BatchVerifier::new(&params, OsRng);
+    for (proof, c) in proofs {
+        let mut transcript = Blake2bRead::init(&proof[..]);
+
+        verifier = verify_proof(&params, pk.get_vk(), verifier, &[&[&[c]]], &mut transcript)
+            .expect("could not verify_proof");
+    }
+    assert!(
+        verifier.finalize(),
+        "One of the proofs could not be verified"
+    );
 }
 
 #[test]
