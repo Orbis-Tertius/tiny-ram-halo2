@@ -113,7 +113,7 @@
               nativeBuildInputs = with pkgs; [ rust-analyzer rustup cargo2nix.defaultPackage.${system} graphviz ];
               shellHook =
                 ''
-                  # cp --no-preserve=mode ${rust-toolchain} rust-toolchain.toml
+                  cp --no-preserve=mode ${rust-toolchain} rust-toolchain.toml
 
                   export RUST_SRC_PATH=~/.rustup/toolchains/${rustChannel}-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/
                 '';
