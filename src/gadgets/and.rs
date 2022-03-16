@@ -88,7 +88,6 @@ impl<F: FieldExt, const WORD_BITS: u32> AndChip<F, WORD_BITS> {
             meta.enable_equality(*column);
         }
         let s_add = meta.selector();
-        let s_decompose = meta.complex_selector();
         let s_compose = meta.selector();
 
         meta.create_gate("add", |meta| {
@@ -103,20 +102,6 @@ impl<F: FieldExt, const WORD_BITS: u32> AndChip<F, WORD_BITS> {
             // The polynomial expressions returned from `create_gate` will be
             // constrained by the proving system to equal zero. Our expression
             vec![s_add * (lhs + rhs - out)]
-        });
-
-        meta.create_gate("decompose", |meta| {
-            let lhs = meta.query_advice(advice[0], Rotation::cur());
-            let rhs = meta.query_advice(advice[1], Rotation::cur());
-            let out = meta.query_advice(advice[0], Rotation::next());
-            let s_decompose = meta.query_selector(s_decompose);
-
-            // Finally, we return the polynomial expressions that constrain this gate.
-            // For our multiplication gate, we only need a single polynomial constraint.
-            //
-            // The polynomial expressions returned from `create_gate` will be
-            // constrained by the proving system to equal zero. Our expression
-            vec![s_decompose * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
         });
 
         meta.create_gate("compose", |meta| {
