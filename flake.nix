@@ -100,6 +100,7 @@
                         components =
                           [
                             "rustc"
+                            "rustfmt"
                             "rust-src"
                             "cargo"
                             "clippy"
