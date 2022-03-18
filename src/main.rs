@@ -1,6 +1,6 @@
 use halo2_proofs::dev::MockProver;
 use pasta_curves::Fp;
-use tiny_ram_halo2::gadgets::and::AndCircuit;
+use tiny_ram_halo2::gadgets::{and::AndCircuit, greater_than::GreaterThanCircuit};
 
 fn main() {
     const WORD_BITS: u32 = 8;
@@ -33,7 +33,7 @@ fn main() {
     let a = Fp::from(4);
     let b = Fp::from(3);
 
-    let circuit = AndCircuit::<Fp, WORD_BITS> {
+    let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
         a: Some(a),
         b: Some(b),
     };
