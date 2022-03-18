@@ -149,7 +149,7 @@ impl<const WORD_BITS: u32> GreaterThanInstructions<Fp> for GreaterThanChip<Fp, W
                 b.0.copy_advice(|| "rhs", &mut region, config.advice[1], 0)?;
 
                 let is_greater =
-                    a.0.value().unwrap().get_lower_128() < b.0.value().unwrap().get_lower_128();
+                    a.0.value().unwrap().get_lower_128() > b.0.value().unwrap().get_lower_128();
 
                 let is_greater_fp = if is_greater { Fp::one() } else { Fp::zero() };
 
