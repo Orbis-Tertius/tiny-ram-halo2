@@ -22,6 +22,7 @@ pub trait GreaterThanInstructions<F: FieldExt>: Chip<F> {
         layouter: impl Layouter<F>,
         a: Self::Word,
         b: Self::Word,
+        is_greater: bool,
     ) -> Result<Self::Word, Error>;
 
     fn expose_public(
@@ -137,6 +138,7 @@ impl<const WORD_BITS: u32> GreaterThanInstructions<Fp> for GreaterThanChip<Fp, W
         mut layouter: impl Layouter<Fp>,
         a: Self::Word,
         b: Self::Word,
+        is_greater: bool,
     ) -> Result<Self::Word, Error> {
         let config = self.config();
 
@@ -147,9 +149,6 @@ impl<const WORD_BITS: u32> GreaterThanInstructions<Fp> for GreaterThanChip<Fp, W
 
                 a.0.copy_advice(|| "lhs", &mut region, config.advice[0], 0)?;
                 b.0.copy_advice(|| "rhs", &mut region, config.advice[1], 0)?;
-
-                let is_greater =
-                    a.0.value().unwrap().get_lower_128() > b.0.value().unwrap().get_lower_128();
 
                 let is_greater_fp = if is_greater { Fp::one() } else { Fp::zero() };
 
@@ -233,7 +232,13 @@ impl<const WORD_BITS: u32> Circuit<Fp> for GreaterThanCircuit<Fp, WORD_BITS> {
         even_bits_chip.decompose(layouter.namespace(|| "a range check"), a.0.clone())?;
         even_bits_chip.decompose(layouter.namespace(|| "b range check"), b.0.clone())?;
 
-        let greater_than = gt_chip.greater_than(layouter.namespace(|| "a > b"), a, b)?;
+        let greater_than = gt_chip.greater_than(
+            layouter.namespace(|| "a > b"),
+            a,
+            b,
+            self.a.unwrap().get_lower_128() > self.b.unwrap().get_lower_128(),
+        )?;
+
         gt_chip.expose_public(layouter.namespace(|| "expose a > b"), greater_than, 0)
     }
 }
