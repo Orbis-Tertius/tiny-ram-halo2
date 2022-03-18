@@ -29,4 +29,17 @@ fn main() {
     // Given the correct public input, our circuit will verify.
     let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
+
+    let a = Fp::from(4);
+    let b = Fp::from(3);
+
+    let circuit = AndCircuit::<Fp, WORD_BITS> {
+        a: Some(a),
+        b: Some(b),
+    };
+
+    let public_inputs = vec![Fp::one()];
+
+    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
 }
