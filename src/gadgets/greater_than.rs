@@ -161,11 +161,11 @@ impl<const WORD_BITS: u32> GreaterThanInstructions<Fp> for GreaterThanChip<Fp, W
                                     b.0.value().map(|b| {
                                         let x = *a - *b;
 
-                                        if is_greater {
-                                            Fp::from(2_u64.pow(WORD_BITS)) - x
+                                        (if is_greater {
+                                            Fp::from(2_u64.pow(WORD_BITS))
                                         } else {
-                                            x
-                                        }
+                                            Fp::zero()
+                                        }) - x
                                     })
                                 })
                                 .ok_or(Error::Synthesis)
