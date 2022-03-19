@@ -2,8 +2,10 @@ use super::tables::even_bits::{EvenBitsChip, EvenBitsConfig, EvenBitsLookup};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
+    dev::MockProver,
     plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed, Instance, Selector,
+        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
+        Instance, Selector,
     },
     poly::Rotation,
 };
@@ -251,223 +253,236 @@ impl<const WORD_BITS: u32> Circuit<Fp> for GreaterThanCircuit<Fp, WORD_BITS> {
     }
 }
 
-// use proptest::prelude::*;
+use proptest::prelude::*;
 
-// prop_compose! {
-//   fn valid_triple(word_bits: u32)
-//           (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
-//           -> (u64, u64, u64) {
-//     let c = a & b;
-//     (a, b, c)
-//   }
-// }
+prop_compose! {
+  fn valid_triple(word_bits: u32)
+          (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
+          -> (u64, u64, Fp) {
+    (a, b, if a > b { Fp::one() } else { Fp::zero() })
+  }
+}
 
-// proptest! {
-//     #[test]
-//     fn fp_u128_test(n in 0..u128::MAX) {
-//         let a = Fp::from_u128(n);
-//         let b = a.get_lower_128();
-//         assert_eq!(b, n)
-//     }
+proptest! {
+    #[test]
+    fn fp_u128_test(n in 0..u128::MAX) {
+        let a = Fp::from_u128(n);
+        let b = a.get_lower_128();
+        assert_eq!(b, n)
+    }
 
-//     /// proptest does not support testing const generics.
-//     #[test]
-//     fn all_8_bit_words_mock_prover_test(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
-//         mock_prover_test::<8>(a, b)
-//     }
-// }
+    /// proptest does not support testing const generics.
+    #[test]
+    fn all_8_bit_words_mock_prover_test(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
+        mock_prover_test::<8>(a, b)
+    }
+}
 
-// proptest! {
-//     #![proptest_config(ProptestConfig {
-//       cases: 20, .. ProptestConfig::default()
-//     })]
+proptest! {
+    #![proptest_config(ProptestConfig {
+      cases: 20, .. ProptestConfig::default()
+    })]
 
-//     #[test]
-//     fn all_8_bit_words_test(s in prop::collection::vec(valid_triple(8), 10)) {
-//         gen_proofs_and_verify::<8>(&s)
-//     }
+    #[test]
+    fn all_8_bit_words_test(s in prop::collection::vec(valid_triple(8), 10)) {
+        gen_proofs_and_verify::<8>(&s)
+    }
 
-//     #[test]
-//     fn all_16_bit_words_mock_prover_test(a in 0..2u64.pow(16), b in 0..2u64.pow(16)) {
-//         mock_prover_test::<16>(a, b)
-//     }
+    #[test]
+    fn all_16_bit_words_mock_prover_test(a in 0..2u64.pow(16), b in 0..2u64.pow(16)) {
+        mock_prover_test::<16>(a, b)
+    }
 
-//     #[test]
-//     fn all_16_bit_words_test(s in prop::collection::vec(valid_triple(16), 10)) {
-//         gen_proofs_and_verify::<16>(&s)
-//     }
+    #[test]
+    fn all_16_bit_words_test(s in prop::collection::vec(valid_triple(16), 10)) {
+        gen_proofs_and_verify::<16>(&s)
+    }
 
-//     #[test]
-//     #[should_panic]
-//     fn all_8_bit_words_test_bad_proof(a in 0..2u64.pow(8), b in 0..2u64.pow(8), c in 0..2u64.pow(8)) {
-//         prop_assume!(c != a & b);
-//         gen_proofs_and_verify::<8>(&[(a, b, c)])
-//     }
+    #[test]
+    #[should_panic]
+    fn all_8_bit_greater_than_tests(a in 0..2u64.pow(8), b in 0..2u64.pow(8))  {
+        gen_proofs_and_verify::<8>(&[(a, b, Fp::one())])
+    }
 
-//     // TODO mix valid and invalid
-//     #[test]
-//     #[should_panic]
-//     fn all_16_bit_words_test_bad_proof(a in 0..2u64.pow(16), b in 0..2u64.pow(16), c in 0..2u64.pow(16)) {
-//         prop_assume!(c != a & b);
-//         gen_proofs_and_verify::<16>(&[(a, b, c)])
-//     }
-// }
+    #[test]
+    #[should_panic]
+    fn all_8_bit_leq_tests(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
+        gen_proofs_and_verify::<8>(&[(a, b, Fp::zero())])
+    }
 
-// proptest! {
-//     // The case number was picked to run all tests in about 60 seconds on my machine.
-//     // TODO use `plonk::BatchVerifier` to speed up tests.
-//     #![proptest_config(ProptestConfig {
-//       cases: 10, .. ProptestConfig::default()
-//     })]
+    // TODO mix valid and invalid
+    #[test]
+    #[should_panic]
+    fn all_16_bit_greater_than_tests(a in 0..2u64.pow(16), b in 0..2u64.pow(16))  {
+        gen_proofs_and_verify::<16>(&[(a, b, Fp::one())])
+    }
 
-//     #[test]
-//     fn all_24_bit_words_mock_prover_test(a in 0..2u64.pow(24), b in 0..2u64.pow(24)) {
-//         mock_prover_test::<24>(a, b)
-//     }
+    #[test]
+    #[should_panic]
+    fn all_16_bit_leq_tests(a in 0..2u64.pow(16), b in 0..2u64.pow(16)) {
+        gen_proofs_and_verify::<16>(&[(a, b, Fp::zero())])
+    }
+}
 
-//     #[test]
-//     fn all_24_bit_words_test(s in prop::collection::vec(valid_triple(24), 10)) {
-//         gen_proofs_and_verify::<24>(&s)
-//     }
+proptest! {
+    // The case number was picked to run all tests in about 60 seconds on my machine.
+    // TODO use `plonk::BatchVerifier` to speed up tests.
+    #![proptest_config(ProptestConfig {
+      cases: 10, .. ProptestConfig::default()
+    })]
 
-//     #[test]
-//     #[should_panic]
-//     fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
-//         prop_assume!(c != a & b);
-//         gen_proofs_and_verify::<24>(&[(a, b, c)])
-//     }
-// }
+    #[test]
+    fn all_24_bit_words_mock_prover_test(a in 0..2u64.pow(24), b in 0..2u64.pow(24)) {
+        mock_prover_test::<24>(a, b)
+    }
 
-// // It's used in the proptests
-// #[allow(unused)]
-// fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64) {
-//     let k = 1 + WORD_BITS / 2;
-//     let circuit: GreaterThanCircuit<Fp, WORD_BITS> = GreaterThanCircuit {
-//         a: Some(Fp::from(a)),
-//         b: Some(Fp::from(b)),
-//     };
+    #[test]
+    fn all_24_bit_words_test(s in prop::collection::vec(valid_triple(24), 10)) {
+        gen_proofs_and_verify::<24>(&s)
+    }
 
-//     let c = Fp::from(a & b);
+    #[test]
+    #[should_panic]
+    fn all_24_bit_greater_than_tests(a in 0..2u64.pow(24), b in 0..2u64.pow(24))  {
+        gen_proofs_and_verify::<24>(&[(a, b, Fp::one())])
+    }
 
-//     // Arrange the public input. We expose the bitwise AND result in row 0
-//     // of the instance column, so we position it there in our public inputs.
-//     let public_inputs = vec![c];
+    #[test]
+    #[should_panic]
+    fn all_24_bit_leq_tests(a in 0..2u64.pow(24), b in 0..2u64.pow(24)) {
+        gen_proofs_and_verify::<24>(&[(a, b, Fp::zero())])
+    }
+}
 
-//     // Given the correct public input, our circuit will verify.
-//     let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
-//     assert_eq!(prover.verify(), Ok(()));
-// }
+// It's used in the proptests
+#[allow(unused)]
+fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64) {
+    let k = 1 + WORD_BITS / 2;
+    let circuit: GreaterThanCircuit<Fp, WORD_BITS> = GreaterThanCircuit {
+        a: Some(Fp::from(a)),
+        b: Some(Fp::from(b)),
+    };
 
-// #[test]
-// fn zeros_mock_prover_test() {
-//     const WORD_BITS: u32 = 24;
-//     let a = 0;
-//     let b = 0;
-//     let k = 1 + WORD_BITS / 2;
-//     let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
-//         a: Some(Fp::from(a)),
-//         b: Some(Fp::from(b)),
-//     };
+    let c = if a > b { Fp::one() } else { Fp::zero() };
 
-//     let c = Fp::from(a & b);
+    // Arrange the public input. We expose the bitwise AND result in row 0
+    // of the instance column, so we position it there in our public inputs.
+    let public_inputs = vec![c];
 
-//     // Arrange the public input. We expose the bitwise AND result in row 0
-//     // of the instance column, so we position it there in our public inputs.
-//     let public_inputs = vec![c];
+    // Given the correct public input, our circuit will verify.
+    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+}
 
-//     // Given the correct public input, our circuit will verify.
-//     let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
-//     assert_eq!(prover.verify(), Ok(()));
-// }
+#[test]
+fn zeros_mock_prover_test() {
+    const WORD_BITS: u32 = 24;
+    let a = 0;
+    let b = 0;
+    let k = 1 + WORD_BITS / 2;
+    let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
+        a: Some(Fp::from(a)),
+        b: Some(Fp::from(b)),
+    };
 
-// // TODO move into test module
-// // It's used in the proptests
-// #[allow(unused)]
-// fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, u64)]) {
-//     use halo2_proofs::{
-//         plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
-//         poly::commitment::Params,
-//         transcript::{Blake2bRead, Blake2bWrite},
-//     };
-//     use pasta_curves::{vesta, EqAffine};
-//     use rand_core::OsRng;
+    let c = if a > b { Fp::one() } else { Fp::zero() };
 
-//     let k = 1 + WORD_BITS / 2;
-//     let params: Params<EqAffine> = halo2_proofs::poly::commitment::Params::new(k);
-//     let empty_circuit = GreaterThanCircuit::<Fp, WORD_BITS>::default();
-//     let vk = keygen_vk(&params, &empty_circuit).unwrap();
+    // Arrange the public input. We expose the bitwise AND result in row 0
+    // of the instance column, so we position it there in our public inputs.
+    let public_inputs = vec![c];
 
-//     let pk = keygen_pk(&params, vk, &empty_circuit).unwrap();
+    // Given the correct public input, our circuit will verify.
+    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+}
 
-//     let proofs: Vec<(Vec<u8>, Fp)> = inputs
-//         .iter()
-//         .map(|(a, b, c)| {
-//             let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
-//                 a: Some(Fp::from(*a)),
-//                 b: Some(Fp::from(*b)),
-//             };
-//             let c = Fp::from(*c);
+// TODO move into test module
+// It's used in the proptests
+#[allow(unused)]
+fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, Fp)]) {
+    use halo2_proofs::{
+        plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
+        poly::commitment::Params,
+        transcript::{Blake2bRead, Blake2bWrite},
+    };
+    use pasta_curves::{vesta, EqAffine};
+    use rand_core::OsRng;
 
-//             let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
-//             create_proof(
-//                 &params,
-//                 &pk,
-//                 &[circuit],
-//                 &[&[&[c]]],
-//                 &mut OsRng,
-//                 &mut transcript,
-//             )
-//             .expect("Failed to create proof");
+    let k = 1 + WORD_BITS / 2;
+    let params: Params<EqAffine> = halo2_proofs::poly::commitment::Params::new(k);
+    let empty_circuit = GreaterThanCircuit::<Fp, WORD_BITS>::default();
+    let vk = keygen_vk(&params, &empty_circuit).unwrap();
 
-//             let proof: Vec<u8> = transcript.finalize();
-//             (proof, c)
-//         })
-//         .collect();
+    let pk = keygen_pk(&params, vk, &empty_circuit).unwrap();
 
-//     let mut verifier = BatchVerifier::new(&params, OsRng);
-//     for (proof, c) in proofs {
-//         let mut transcript = Blake2bRead::init(&proof[..]);
+    let proofs: Vec<(Vec<u8>, Fp)> = inputs
+        .iter()
+        .map(|(a, b, c)| {
+            let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
+                a: Some(Fp::from(*a)),
+                b: Some(Fp::from(*b)),
+            };
 
-//         verifier = verify_proof(&params, pk.get_vk(), verifier, &[&[&[c]]], &mut transcript)
-//             .expect("could not verify_proof");
-//     }
-//     assert!(
-//         verifier.finalize(),
-//         "One of the proofs could not be verified"
-//     );
-// }
+            let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
+            create_proof(
+                &params,
+                &pk,
+                &[circuit],
+                &[&[&[*c]]],
+                &mut OsRng,
+                &mut transcript,
+            )
+            .expect("Failed to create proof");
 
-// #[test]
-// fn circuit_layout_test() {
-//     const WORD_BITS: u32 = 8;
-//     let k = 5;
+            let proof: Vec<u8> = transcript.finalize();
+            (proof, *c)
+        })
+        .collect();
 
-//     // Prepare the private and public inputs to the circuit!
-//     const A: u64 = 7;
-//     const B: u64 = 6;
-//     let a = Fp::from(A);
-//     let b = Fp::from(B);
+    let mut verifier = BatchVerifier::new(&params, OsRng);
+    for (proof, c) in proofs {
+        let mut transcript = Blake2bRead::init(&proof[..]);
 
-//     // Instantiate the circuit with the private inputs.
-//     let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
-//         a: Some(a),
-//         b: Some(b),
-//     };
-//     use plotters::prelude::*;
-//     let root = BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
-//     root.fill(&WHITE).unwrap();
-//     let root = root
-//         .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))
-//         .unwrap();
+        verifier = verify_proof(&params, pk.get_vk(), verifier, &[&[&[c]]], &mut transcript)
+            .expect("could not verify_proof");
+    }
+    assert!(
+        verifier.finalize(),
+        "One of the proofs could not be verified"
+    );
+}
 
-//     halo2_proofs::dev::CircuitLayout::default()
-//         .mark_equality_cells(true)
-//         .show_equality_constraints(true)
-//         // The first argument is the size parameter for the circuit.
-//         .render(k, &circuit, &root)
-//         .unwrap();
+#[test]
+fn circuit_layout_test() {
+    const WORD_BITS: u32 = 8;
+    let k = 5;
 
-//     let dot_string = halo2_proofs::dev::circuit_dot_graph(&circuit);
-//     let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
-//     std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
-// }
+    // Prepare the private and public inputs to the circuit!
+    const A: u64 = 7;
+    const B: u64 = 6;
+    let a = Fp::from(A);
+    let b = Fp::from(B);
+
+    // Instantiate the circuit with the private inputs.
+    let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
+        a: Some(a),
+        b: Some(b),
+    };
+    use plotters::prelude::*;
+    let root = BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
+    root.fill(&WHITE).unwrap();
+    let root = root
+        .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))
+        .unwrap();
+
+    halo2_proofs::dev::CircuitLayout::default()
+        .mark_equality_cells(true)
+        .show_equality_constraints(true)
+        // The first argument is the size parameter for the circuit.
+        .render(k, &circuit, &root)
+        .unwrap();
+
+    let dot_string = halo2_proofs::dev::circuit_dot_graph(&circuit);
+    let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
+    std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+}
