@@ -1,6 +1,6 @@
 use halo2_proofs::dev::MockProver;
 use pasta_curves::Fp;
-use tiny_ram_halo2::gadgets::and::AndCircuit;
+use tiny_ram_halo2::gadgets::{and::AndCircuit, greater_than::GreaterThanCircuit};
 
 fn main() {
     const WORD_BITS: u32 = 8;
@@ -27,6 +27,19 @@ fn main() {
     let public_inputs = vec![c];
 
     // Given the correct public input, our circuit will verify.
+    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+    assert_eq!(prover.verify(), Ok(()));
+
+    let a = Fp::from(4);
+    let b = Fp::from(3);
+
+    let circuit = GreaterThanCircuit::<Fp, WORD_BITS> {
+        a: Some(a),
+        b: Some(b),
+    };
+
+    let public_inputs = vec![Fp::one()];
+
     let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
     assert_eq!(prover.verify(), Ok(()));
 }
