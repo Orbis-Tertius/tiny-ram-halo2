@@ -3,3 +3,8 @@ params
 proof
 verifying_key
 result-bin
+
+# generated from tests
+circuit.dot
+layout.png
+proptest-regressions
