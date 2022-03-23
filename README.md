@@ -1,7 +1,7 @@
 # tiny-ram-halo2
 
 This repo is in the early stages of development.
-It will contain a implementation of a TinyRAM execution verifier using the [halo2](https://github.com/zcash/halo2).
+It will contain an implementation of a TinyRAM Harvard architecture execution verifier using [halo2](https://github.com/zcash/halo2).
 
 ## Building or Testing
 
