@@ -6,7 +6,7 @@ use halo2_proofs::{
 
 use crate::{
     gadgets::and::{AndChip, AndConfig},
-    trace::{self, And, ImmediateOrRegName},
+    trace::{self, And, Answer, ImmediateOrRegName, LoadW, StoreW},
 };
 
 /// These will later be replaced with the 9 plus flags method from Arya page 22.
@@ -49,24 +49,36 @@ impl<const WORD_BITS: u32> Instructions<WORD_BITS> {
         region: &mut Region<F>,
         inst: trace::Instruction,
     ) {
+        let assign_immediate = |region: &mut Region<F>, a| {
+            if let ImmediateOrRegName::Immediate(word) = a {
+                region
+                    .assign_advice(
+                        || format!("immediate: {:0b}", word.0),
+                        immediate,
+                        0,
+                        || Ok(F::from_u128(word.0 as u128)),
+                    )
+                    .unwrap();
+            }
+            // Else immediate is zero
+        };
         match inst {
             trace::Instruction::And(And { ri, rj, a }) => {
                 self.and.0.enable(region, 0).unwrap();
-
-                if let ImmediateOrRegName::Immediate(word) = a {
-                    region
-                        .assign_advice(
-                            || format!("immediate: {:?}", word),
-                            immediate,
-                            0,
-                            || Ok(F::from_u128(word.0 as u128)),
-                        )
-                        .unwrap();
-                }
+                assign_immediate(region, a)
             }
-            trace::Instruction::LoadW(_) => todo!(),
-            trace::Instruction::StoreW(_) => todo!(),
-            trace::Instruction::Answer(_) => todo!(),
+            trace::Instruction::LoadW(LoadW { ri, a }) => {
+                self.load.enable(region, 0).unwrap();
+                assign_immediate(region, a)
+            }
+            trace::Instruction::StoreW(StoreW { ri, a }) => {
+                self.store.enable(region, 0).unwrap();
+                assign_immediate(region, a)
+            }
+            trace::Instruction::Answer(Answer { a }) => {
+                self.answer.enable(region, 0).unwrap();
+                assign_immediate(region, a)
+            }
         }
     }
 }

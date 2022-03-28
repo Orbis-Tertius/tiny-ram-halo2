@@ -109,16 +109,16 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> ExeChip<F, WORD_
         }
     }
 
-    fn step(&self, mut layouter: impl Layouter<F>, step: Step<REG_COUNT>) -> Result<(), Error> {
+    fn step(&self, mut layouter: impl Layouter<F>, step: &Step<REG_COUNT>) -> Result<(), Error> {
         let config = self.config();
 
         layouter
             .assign_region(
-                || format!("{:?}", step),
+                || format!("{}", step.instruction),
                 |mut region: Region<'_, F>| {
                     region
                         .assign_fixed(
-                            || format!("time: {:?}", step.time),
+                            || format!("time: {}", step.time.0),
                             config.time,
                             0,
                             || Ok(F::from_u128(step.time.0 as u128)),
@@ -127,7 +127,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> ExeChip<F, WORD_
 
                     region
                         .assign_advice(
-                            || format!("pc: {:?}", step.pc),
+                            || format!("pc: {}", step.pc.0),
                             config.pc,
                             0,
                             || Ok(F::from_u128(step.pc.0 as u128)),
@@ -148,7 +148,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> ExeChip<F, WORD_
 
 #[derive(Default)]
 pub struct ExeCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
-    pub b: Option<Trace<WORD_BITS, REG_COUNT>>,
+    pub trace: Option<Trace<WORD_BITS, REG_COUNT>>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
@@ -176,13 +176,78 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let and_chip = AndChip::<F, WORD_BITS>::construct(config.0.instruction.and.1);
         let even_bits_chip = EvenBitsChip::<F, WORD_BITS>::construct(config.1);
         even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
+        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
-        todo!()
+        let trace = self
+            .trace
+            .as_ref()
+            .expect("A trace must be set before synthesis");
+        for step in trace.exe.iter() {
+            exe_chip
+                .step(layouter.namespace(|| format!("{}", step.instruction)), step)
+                .unwrap();
+        }
+
+        Ok(())
     }
 }
 
-#[test]
-fn load_and_answer() {}
+#[cfg(test)]
+mod tests {
+    use pasta_curves::Fp;
+
+    use crate::{gadgets::tables::exe::ExeCircuit, trace::*};
+
+    fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>() -> Trace<WORD_BITS, REG_COUNT>
+    {
+        let prog = Program(vec![
+            Instruction::LoadW(LoadW {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(0)),
+            }),
+            Instruction::And(And {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(0b1)),
+            }),
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::RegName(RegName(1)),
+            }),
+        ]);
+
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 0b1);
+        trace
+    }
+
+    #[test]
+    fn circuit_layout_test() {
+        const WORD_BITS: u32 = 8;
+        const REG_COUNT: usize = 8;
+        let trace = Some(load_and_answer());
+
+        let k = 1 + WORD_BITS / 2;
+
+        // Instantiate the circuit with the private inputs.
+        let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace };
+        use plotters::prelude::*;
+        let root = BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))
+            .unwrap();
+
+        halo2_proofs::dev::CircuitLayout::default()
+            .mark_equality_cells(true)
+            .show_equality_constraints(true)
+            // The first argument is the size parameter for the circuit.
+            .render::<Fp, _, _>(k, &circuit, &root)
+            .unwrap();
+
+        let dot_string = halo2_proofs::dev::circuit_dot_graph::<Fp, _>(&circuit);
+        let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
+        std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+    }
+}

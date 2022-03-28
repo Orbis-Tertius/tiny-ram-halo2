@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    fmt::Display,
     ops::{BitAnd, Index, IndexMut},
 };
 
@@ -43,7 +44,7 @@ pub struct Mem<const WORD_BITS: u32> {
 impl<const WORD_BITS: u32> Mem<WORD_BITS> {
     /// Instead of providing two read only tapes as the TinyRAM specification does,
     /// We take the aproach from page 13 of the Arya paper, and write the tapes to memory.
-    fn new(primary_tape: &[Word], auxiliary_tape: &[Word]) -> Self {
+    pub fn new(primary_tape: &[Word], auxiliary_tape: &[Word]) -> Self {
         assert_eq!(WORD_BITS % 8, 0);
 
         Mem {
@@ -127,7 +128,7 @@ enum Access {
 }
 
 impl Access {
-    fn address(&self) -> Address {
+    pub fn address(&self) -> Address {
         match self {
             Access::Init { address, .. }
             | Access::Store { address, .. }
@@ -135,7 +136,7 @@ impl Access {
         }
     }
 
-    fn value(&self) -> Word {
+    pub fn value(&self) -> Word {
         match self {
             Access::Init { value, .. }
             | Access::Store { value, .. }
@@ -162,10 +163,73 @@ pub enum Instruction {
     Answer(Answer),
 }
 
+impl Instruction {
+    pub fn name(&self) -> &str {
+        match self {
+            Instruction::And(_) => "and",
+            Instruction::LoadW(_) => "load.w",
+            Instruction::StoreW(_) => "store.w",
+            Instruction::Answer(_) => "answer",
+        }
+    }
+
+    pub fn ri(&self) -> Option<RegName> {
+        match self {
+            Instruction::And(And { ri, .. })
+            | Instruction::LoadW(LoadW { ri, .. })
+            | Instruction::StoreW(StoreW { ri, .. }) => Some(*ri),
+            Instruction::Answer(_) => None,
+        }
+    }
+
+    pub fn rj(&self) -> Option<RegName> {
+        match self {
+            Instruction::And(And { rj, .. }) => Some(*rj),
+            Instruction::Answer(_) | Instruction::StoreW(_) | Instruction::LoadW(_) => None,
+        }
+    }
+
+    pub fn a(&self) -> ImmediateOrRegName {
+        match self {
+            Instruction::And(And { a, .. })
+            | Instruction::LoadW(LoadW { a, .. })
+            | Instruction::StoreW(StoreW { a, .. })
+            | Instruction::Answer(Answer { a }) => *a,
+        }
+    }
+}
+
+impl Display for Instruction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} ", self.name())?;
+        match self {
+            Instruction::And(And { ri, rj, a }) => {
+                write!(f, "r{} ", ri.0)?;
+                write!(f, "r{} ", rj.0)?;
+                write!(f, "{}", a)
+            }
+            Instruction::LoadW(LoadW { ri, a }) | Instruction::StoreW(StoreW { ri, a }) => {
+                write!(f, "r{} ", ri.0)?;
+                write!(f, "{}", a)
+            }
+            Instruction::Answer(Answer { a }) => write!(f, "{}", a),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ImmediateOrRegName {
     Immediate(Word),
     RegName(RegName),
+}
+
+impl Display for ImmediateOrRegName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ImmediateOrRegName::Immediate(w) => write!(f, "{:0b} ", w.0),
+            ImmediateOrRegName::RegName(r) => write!(f, "r{} ", r.0),
+        }
+    }
 }
 
 impl ImmediateOrRegName {
@@ -229,10 +293,10 @@ pub struct Answer {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct Program(Vec<Instruction>);
+pub struct Program(pub Vec<Instruction>);
 
 impl Program {
-    fn eval<const REG_COUNT: usize, const WORD_BITS: u32>(
+    pub fn eval<const WORD_BITS: u32, const REG_COUNT: usize>(
         self,
         mut mem: Mem<WORD_BITS>,
     ) -> Trace<WORD_BITS, REG_COUNT> {
