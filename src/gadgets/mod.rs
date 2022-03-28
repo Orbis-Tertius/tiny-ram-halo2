@@ -1,3 +1,3 @@
 pub mod and;
-pub mod greater_than;
+pub mod cmpa;
 pub mod tables;
