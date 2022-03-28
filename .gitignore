@@ -3,7 +3,6 @@ params
 proof
 verifying_key
 result-bin
-result
 
 # generated from tests
 circuit.dot
