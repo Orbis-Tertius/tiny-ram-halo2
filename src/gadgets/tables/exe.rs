@@ -204,6 +204,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 
 #[cfg(test)]
 mod tests {
+    use halo2_proofs::dev::MockProver;
     use pasta_curves::Fp;
 
     use crate::{gadgets::tables::exe::ExeCircuit, trace::*};
@@ -258,5 +259,33 @@ mod tests {
         let dot_string = halo2_proofs::dev::circuit_dot_graph::<Fp, _>(&circuit);
         let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
         std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+    }
+
+    fn mock_prover_test<const WORD_BITS: u32, const REG_COUNT: usize>(
+        trace: Trace<WORD_BITS, REG_COUNT>,
+    ) {
+        let k = 1 + WORD_BITS / 2;
+        let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace: Some(trace) };
+
+        // Given the correct public input, our circuit will verify.
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn load_and_answer_mock_prover() {
+        mock_prover_test::<8, 8>(load_and_answer())
+    }
+
+    #[test]
+    fn answer_mock_prover() {
+        let prog = Program(vec![Instruction::Answer(Answer {
+            a: ImmediateOrRegName::Immediate(Word(1)),
+        })]);
+
+        let trace = prog.eval::<8, 8>(Mem::new(&[], &[]));
+        assert_eq!(trace.ans.0, 1);
+
+        mock_prover_test::<8, 8>(trace)
     }
 }
