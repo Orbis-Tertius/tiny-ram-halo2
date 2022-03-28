@@ -142,7 +142,7 @@ impl<F: FieldExt, const WORD_BITS: u32> EvenBitsChip<F, WORD_BITS> {
     // `2^(WORD_BITS/2)` rows of the constraint system.
     pub fn alloc_table(&self, layouter: &mut impl Layouter<F>) -> Result<(), Error> {
         layouter.assign_table(
-            || "even bits table",
+            || "even bits",
             |mut table| {
                 for i in 0..2usize.pow(WORD_BITS / 2) {
                     table.assign_cell(
@@ -320,7 +320,6 @@ mod mem_test {
         fn synthesize(
             &self,
             config: Self::Config,
-            // mut layouter: impl Layouter<F>,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             // let field_chip = AndChip::<F>::construct(config);
