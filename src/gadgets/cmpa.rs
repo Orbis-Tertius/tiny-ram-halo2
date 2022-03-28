@@ -4,8 +4,8 @@ use halo2_proofs::{
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
     dev::MockProver,
     plonk::{
-        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
-        Instance, Selector,
+        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression,
+        Fixed, Instance, Selector,
     },
     poly::Rotation,
 };
@@ -17,7 +17,11 @@ pub trait GreaterThanInstructions<F: FieldExt>: Chip<F> {
     type Word;
 
     /// Loads a number into the circuit as a private input.
-    fn load_private(&self, layouter: impl Layouter<F>, a: Option<F>) -> Result<Self::Word, Error>;
+    fn load_private(
+        &self,
+        layouter: impl Layouter<F>,
+        a: Option<F>,
+    ) -> Result<Self::Word, Error>;
 
     fn greater_than(
         &self,
@@ -80,7 +84,8 @@ impl<F: FieldExt, const WORD_BITS: u32> GreaterThanChip<F, WORD_BITS> {
 
             vec![
                 s_gt * (lhs - rhs + helper
-                    - Expression::Constant(F::from(2_u64.pow(WORD_BITS))) * is_greater),
+                    - Expression::Constant(F::from(2_u64.pow(WORD_BITS)))
+                        * is_greater),
             ]
         });
 
@@ -109,7 +114,9 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for GreaterThanChip<F, WORD_BITS
 #[derive(Clone, Debug)]
 pub struct Word<F: FieldExt>(AssignedCell<F, F>);
 
-impl<const WORD_BITS: u32> GreaterThanInstructions<Fp> for GreaterThanChip<Fp, WORD_BITS> {
+impl<const WORD_BITS: u32> GreaterThanInstructions<Fp>
+    for GreaterThanChip<Fp, WORD_BITS>
+{
     type Word = Word<Fp>;
 
     fn load_private(
@@ -225,7 +232,9 @@ impl<const WORD_BITS: u32> Circuit<Fp> for GreaterThanCircuit<Fp, WORD_BITS> {
         let constant = meta.fixed_column();
 
         (
-            GreaterThanChip::<Fp, WORD_BITS>::configure(meta, advice, instance, constant),
+            GreaterThanChip::<Fp, WORD_BITS>::configure(
+                meta, advice, instance, constant,
+            ),
             EvenBitsChip::<Fp, WORD_BITS>::configure(meta, advice),
         )
     }
@@ -242,12 +251,16 @@ impl<const WORD_BITS: u32> Circuit<Fp> for GreaterThanCircuit<Fp, WORD_BITS> {
         let a = gt_chip.load_private(layouter.namespace(|| "load a"), self.a)?;
         let b = gt_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
 
-        even_bits_chip.decompose(layouter.namespace(|| "a range check"), a.0.clone())?;
-        even_bits_chip.decompose(layouter.namespace(|| "b range check"), b.0.clone())?;
+        even_bits_chip
+            .decompose(layouter.namespace(|| "a range check"), a.0.clone())?;
+        even_bits_chip
+            .decompose(layouter.namespace(|| "b range check"), b.0.clone())?;
 
-        let (helper, greater_than) = gt_chip.greater_than(layouter.namespace(|| "a > b"), a, b)?;
+        let (helper, greater_than) =
+            gt_chip.greater_than(layouter.namespace(|| "a > b"), a, b)?;
 
-        even_bits_chip.decompose(layouter.namespace(|| "helper range check"), helper.0)?;
+        even_bits_chip
+            .decompose(layouter.namespace(|| "helper range check"), helper.0)?;
 
         gt_chip.expose_public(layouter.namespace(|| "expose a > b"), greater_than, 0)
     }
@@ -443,8 +456,14 @@ fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, Fp)]) {
     for (proof, c) in proofs {
         let mut transcript = Blake2bRead::init(&proof[..]);
 
-        verifier = verify_proof(&params, pk.get_vk(), verifier, &[&[&[c]]], &mut transcript)
-            .expect("could not verify_proof");
+        verifier = verify_proof(
+            &params,
+            pk.get_vk(),
+            verifier,
+            &[&[&[c]]],
+            &mut transcript,
+        )
+        .expect("could not verify_proof");
     }
     assert!(
         verifier.finalize(),

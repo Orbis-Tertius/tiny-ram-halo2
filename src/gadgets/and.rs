@@ -3,8 +3,8 @@ use halo2_proofs::{
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
     dev::MockProver,
     plonk::{
-        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
-        Instance, Selector,
+        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression,
+        Fixed, Instance, Selector,
     },
     poly::Rotation,
 };
@@ -17,7 +17,11 @@ pub trait NumericInstructions<F: FieldExt>: Chip<F> {
 
     /// Loads a number into the circuit as a private input.
     /// TODO replace this like expose_public
-    fn load_private(&self, layouter: impl Layouter<F>, a: Option<F>) -> Result<Self::Word, Error>;
+    fn load_private(
+        &self,
+        layouter: impl Layouter<F>,
+        a: Option<F>,
+    ) -> Result<Self::Word, Error>;
 
     fn add(
         &self,
@@ -291,21 +295,33 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
         let b = and_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
 
         // index 2
-        let (ae, ao) = even_bits_chip.decompose(layouter.namespace(|| "a decomposition"), a.0)?;
+        let (ae, ao) = even_bits_chip
+            .decompose(layouter.namespace(|| "a decomposition"), a.0)?;
 
         // index 3
-        let (be, bo) = even_bits_chip.decompose(layouter.namespace(|| "b decomposition"), b.0)?;
+        let (be, bo) = even_bits_chip
+            .decompose(layouter.namespace(|| "b decomposition"), b.0)?;
 
         // index 4
-        let e = and_chip.add(layouter.namespace(|| "ae + be"), Word(ae.0), Word(be.0))?;
+        let e = and_chip.add(
+            layouter.namespace(|| "ae + be"),
+            Word(ae.0),
+            Word(be.0),
+        )?;
         // index 5
-        let o = and_chip.add(layouter.namespace(|| "ao + be"), Word(ao.0), Word(bo.0))?;
+        let o = and_chip.add(
+            layouter.namespace(|| "ao + be"),
+            Word(ao.0),
+            Word(bo.0),
+        )?;
 
         // // index 6
-        let (_ee, eo) = even_bits_chip.decompose(layouter.namespace(|| "e decomposition"), e.0)?;
+        let (_ee, eo) = even_bits_chip
+            .decompose(layouter.namespace(|| "e decomposition"), e.0)?;
 
         // index 7
-        let (_oe, oo) = even_bits_chip.decompose(layouter.namespace(|| "o decomposition"), o.0)?;
+        let (_oe, oo) = even_bits_chip
+            .decompose(layouter.namespace(|| "o decomposition"), o.0)?;
 
         // // index 8
         let a_and_b = and_chip.compose(
@@ -458,7 +474,10 @@ fn zeros_mock_prover_test() {
 // TODO move into test module
 // It's used in the proptests
 #[allow(unused)]
-fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, u64)], retry: bool) {
+fn gen_proofs_and_verify<const WORD_BITS: u32>(
+    inputs: &[(u64, u64, u64)],
+    retry: bool,
+) {
     use halo2_proofs::{
         plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
         poly::commitment::Params,
@@ -503,8 +522,14 @@ fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, u64)], retry
     for (proof, c) in &proofs {
         let mut transcript = Blake2bRead::init(&proof[..]);
 
-        verifier = verify_proof(&params, pk.get_vk(), verifier, &[&[&[*c]]], &mut transcript)
-            .expect("could not verify_proof");
+        verifier = verify_proof(
+            &params,
+            pk.get_vk(),
+            verifier,
+            &[&[&[*c]]],
+            &mut transcript,
+        )
+        .expect("could not verify_proof");
     }
 
     let verified = verifier.finalize();
@@ -515,8 +540,14 @@ fn gen_proofs_and_verify<const WORD_BITS: u32>(inputs: &[(u64, u64, u64)], retry
             let mut verifier = SingleVerifier::new(&params);
             let mut transcript = Blake2bRead::init(&proof[..]);
 
-            verify_proof(&params, pk.get_vk(), verifier, &[&[&[c]]], &mut transcript)
-                .expect("could not verify_proof");
+            verify_proof(
+                &params,
+                pk.get_vk(),
+                verifier,
+                &[&[&[c]]],
+                &mut transcript,
+            )
+            .expect("could not verify_proof");
         }
     }
 }

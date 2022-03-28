@@ -19,7 +19,9 @@ pub struct Instructions<const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> Instructions<WORD_BITS> {
-    pub fn new_configured<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Instructions<WORD_BITS> {
+    pub fn new_configured<F: FieldExt>(
+        meta: &mut ConstraintSystem<F>,
+    ) -> Instructions<WORD_BITS> {
         let and = meta.selector();
 
         let and_config = {

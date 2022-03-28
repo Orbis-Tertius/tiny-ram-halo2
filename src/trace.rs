@@ -185,7 +185,9 @@ impl Instruction {
     pub fn rj(&self) -> Option<RegName> {
         match self {
             Instruction::And(And { rj, .. }) => Some(*rj),
-            Instruction::Answer(_) | Instruction::StoreW(_) | Instruction::LoadW(_) => None,
+            Instruction::Answer(_)
+            | Instruction::StoreW(_)
+            | Instruction::LoadW(_) => None,
         }
     }
 
@@ -208,7 +210,8 @@ impl Display for Instruction {
                 write!(f, "r{} ", rj.0)?;
                 write!(f, "{}", a)
             }
-            Instruction::LoadW(LoadW { ri, a }) | Instruction::StoreW(StoreW { ri, a }) => {
+            Instruction::LoadW(LoadW { ri, a })
+            | Instruction::StoreW(StoreW { ri, a }) => {
                 write!(f, "r{} ", ri.0)?;
                 write!(f, "{}", a)
             }
@@ -306,7 +309,8 @@ impl Program {
         let mut time = Time(0);
         let mut exe = Vec::with_capacity(100);
         let ans = loop {
-            let instruction = *prog.0.get(pc.0).expect("Program did not Answer 0 or 1.");
+            let instruction =
+                *prog.0.get(pc.0).expect("Program did not Answer 0 or 1.");
             exe.push(Step {
                 time,
                 pc,
@@ -315,7 +319,9 @@ impl Program {
             });
             dbg!(&regs);
             match instruction {
-                Instruction::And(And { ri, rj, a }) => regs[ri] = dbg!(regs[rj] & a.get(&regs)),
+                Instruction::And(And { ri, rj, a }) => {
+                    regs[ri] = dbg!(regs[rj] & a.get(&regs))
+                }
                 Instruction::LoadW(LoadW { ri, a }) => {
                     regs[ri] = mem.load(Address(a.get(&regs).0), time, pc);
                 }

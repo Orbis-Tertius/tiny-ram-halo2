@@ -62,7 +62,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
     }
 }
 
-impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> ExeChip<F, WORD_BITS, REG_COUNT> {
+impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
+    ExeChip<F, WORD_BITS, REG_COUNT>
+{
     fn construct(config: ExeConfig<WORD_BITS, REG_COUNT>) -> Self {
         Self {
             config,
@@ -109,7 +111,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> ExeChip<F, WORD_
         }
     }
 
-    fn step(&self, mut layouter: impl Layouter<F>, step: &Step<REG_COUNT>) -> Result<(), Error> {
+    fn step(
+        &self,
+        mut layouter: impl Layouter<F>,
+        step: &Step<REG_COUNT>,
+    ) -> Result<(), Error> {
         let config = self.config();
 
         layouter
@@ -134,9 +140,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> ExeChip<F, WORD_
                         )
                         .unwrap();
 
-                    config
-                        .instruction
-                        .syn(config.immediate, &mut region, step.instruction);
+                    config.instruction.syn(
+                        config.immediate,
+                        &mut region,
+                        step.instruction,
+                    );
 
                     Ok(())
                 },
@@ -200,8 +208,8 @@ mod tests {
 
     use crate::{gadgets::tables::exe::ExeCircuit, trace::*};
 
-    fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>() -> Trace<WORD_BITS, REG_COUNT>
-    {
+    fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+    ) -> Trace<WORD_BITS, REG_COUNT> {
         let prog = Program(vec![
             Instruction::LoadW(LoadW {
                 ri: RegName(0),
@@ -233,7 +241,8 @@ mod tests {
         // Instantiate the circuit with the private inputs.
         let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace };
         use plotters::prelude::*;
-        let root = BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
+        let root =
+            BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
             .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))

@@ -3,7 +3,9 @@ use std::{marker::PhantomData, ops::Deref};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region},
-    plonk::{Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn},
+    plonk::{
+        Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn,
+    },
     poly::Rotation,
 };
 
@@ -193,7 +195,9 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for EvenBitsChip<F, WORD_BITS> {
     }
 }
 
-impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F> for EvenBitsChip<F, WORD_BITS> {
+impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F>
+    for EvenBitsChip<F, WORD_BITS>
+{
     type Word = AssignedCell<F, F>;
 
     fn decompose(
@@ -288,7 +292,9 @@ proptest! {
 
 #[cfg(test)]
 mod mem_test {
-    use halo2_proofs::{circuit::SimpleFloorPlanner, dev::MockProver, plonk::Circuit};
+    use halo2_proofs::{
+        circuit::SimpleFloorPlanner, dev::MockProver, plonk::Circuit,
+    };
     use pasta_curves::Fp;
 
     use super::*;
@@ -301,7 +307,9 @@ mod mem_test {
         pub input: Option<F>,
     }
 
-    impl<F: FieldExt, const WORD_BITS: u32> Circuit<F> for EvenBitsTestCircuit<F, WORD_BITS> {
+    impl<F: FieldExt, const WORD_BITS: u32> Circuit<F>
+        for EvenBitsTestCircuit<F, WORD_BITS>
+    {
         // Since we are using a single chip for everything, we can just reuse its config.
         type Config = EvenBitsConfig;
         type FloorPlanner = SimpleFloorPlanner;
@@ -331,7 +339,8 @@ mod mem_test {
                 .config()
                 .load_private(layouter.namespace(|| "load input"), self.input)?;
 
-            let (_ae, _ao) = field_chip.decompose(layouter.namespace(|| "a decomposition"), a)?;
+            let (_ae, _ao) =
+                field_chip.decompose(layouter.namespace(|| "a decomposition"), a)?;
 
             Ok(())
         }
