@@ -7,14 +7,9 @@
       nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
       rust-overlay.url = "github:oxalica/rust-overlay";
       flake-utils.url = "github:numtide/flake-utils";
-      flake-compat-ci.url = "github:hercules-ci/flake-compat-ci";
-      flake-compat = {
-        url = "github:edolstra/flake-compat";
-        flake = false;
-      };
     };
 
-  outputs = { self, cargo2nix, flake-utils, nixpkgs, rust-overlay, flake-compat, flake-compat-ci, ... }:
+  outputs = { self, cargo2nix, flake-utils, nixpkgs, rust-overlay, ... }:
     with builtins;
     flake-utils.lib.eachSystem [ "x86_64-linux" ]
       (system:
@@ -120,10 +115,7 @@
                 '';
             };
 
-          ciNix = flake-compat-ci.lib.recurseIntoFlakeWith {
-            flake = self;
-            systems = [ "x86_64-linux" ];
-          };
+            herculesCI.ciSystems = [ "x86_64-linux" ];
         }
       );
 }
