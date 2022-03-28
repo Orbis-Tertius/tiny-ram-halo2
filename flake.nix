@@ -16,7 +16,7 @@
 
   outputs = { self, cargo2nix, flake-utils, nixpkgs, rust-overlay, flake-compat, flake-compat-ci, ... }:
     with builtins;
-    flake-utils.lib.eachDefaultSystem
+    flake-utils.lib.eachSystem [ "x86_64-linux" ]
       (system:
         let
           pkgs =
