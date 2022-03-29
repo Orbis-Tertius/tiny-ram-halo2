@@ -12,6 +12,7 @@ use crate::{
 };
 
 use super::{
+    aux::TempVarSelectors,
     even_bits::{EvenBitsChip, EvenBitsConfig},
     instructions::Instructions,
 };
@@ -28,13 +29,17 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // Not sure this is right.
     time: Column<Fixed>,
     pc: Column<Advice>,
-    instruction: Instructions<WORD_BITS>,
+    instruction: Instructions<WORD_BITS, REG_COUNT>,
     immediate: Column<Advice>,
     reg: [Column<Advice>; REG_COUNT],
+    flag: Column<Advice>,
+    address: Column<Advice>,
+    value: Column<Advice>,
     a: Column<Advice>,
     b: Column<Advice>,
     c: Column<Advice>,
     d: Column<Advice>,
+
     // TODO out is much bigger
     // out: Column<Advice>,
 
@@ -43,8 +48,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-
-    // temp_vars: TempVarSelectors<REG_COUNT>,
+    temp_vars: TempVarSelectors<REG_COUNT>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -98,16 +102,24 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let c = meta.advice_column();
         let d = meta.advice_column();
 
+        let flag = meta.advice_column();
+        let address = meta.advice_column();
+        let value = meta.advice_column();
+
         ExeConfig {
             time,
             pc,
             instruction,
             immediate,
             reg,
+            flag,
+            address,
+            value,
             a,
             b,
             c,
             d,
+            temp_vars: TempVarSelectors::new(meta),
         }
     }
 
@@ -142,6 +154,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                     config.instruction.syn(
                         config.immediate,
+                        config.temp_vars,
                         &mut region,
                         step.instruction,
                     );
@@ -246,7 +259,7 @@ mod tests {
             BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
-            .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))
+            .titled("Exe Circuit Layout", ("sans-serif", 60))
             .unwrap();
 
         halo2_proofs::dev::CircuitLayout::default()
