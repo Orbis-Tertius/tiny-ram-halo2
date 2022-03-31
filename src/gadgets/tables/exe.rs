@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    aux::TempVarSelectors,
+    aux::{Out, TempVarSelectors},
     even_bits::{EvenBitsChip, EvenBitsConfig},
     instructions::Instructions,
 };
@@ -40,8 +40,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     c: Column<Advice>,
     d: Column<Advice>,
 
-    // TODO out is much bigger
-    // out: Column<Advice>,
+    out: Out<Column<Advice>>,
 
     // t_link: Column<Advice>,
     // v_link: Column<Advice>,
@@ -119,6 +118,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             b,
             c,
             d,
+            out: Out::new(|| meta.advice_column()),
             temp_vars: TempVarSelectors::new(meta),
         }
     }

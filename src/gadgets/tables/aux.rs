@@ -68,45 +68,43 @@ impl<const REG_COUNT: usize> UnChangedSelectors<REG_COUNT> {
 
 /// This corresponds to sout in the paper (page 24).
 #[derive(Debug, Clone, Copy)]
-pub struct OutSelectors<const REG_COUNT: usize> {
+pub struct Out<T> {
     /// logical
-    pub and: Selector,
-    pub xor: Selector,
-    pub or: Selector,
+    pub and: T,
+    pub xor: T,
+    pub or: T,
 
     /// arithmetic
-    pub sum: Selector,
-    pub prog: Selector,
-    pub ssum: Selector,
-    pub sprod: Selector,
-    pub mod_: Selector,
+    pub sum: T,
+    pub prog: T,
+    pub ssum: T,
+    pub sprod: T,
+    pub mod_: T,
 
-    pub shift: Selector,
+    pub shift: T,
 
-    pub flag1: Selector,
-    pub flag2: Selector,
-    pub flag3: Selector,
-    pub flag4: Selector,
+    pub flag1: T,
+    pub flag2: T,
+    pub flag3: T,
+    pub flag4: T,
 }
 
-impl<const REG_COUNT: usize> OutSelectors<REG_COUNT> {
-    pub fn new<F: FieldExt>(
-        meta: &mut ConstraintSystem<F>,
-    ) -> OutSelectors<REG_COUNT> {
-        OutSelectors {
-            and: meta.selector(),
-            xor: meta.selector(),
-            or: meta.selector(),
-            sum: meta.selector(),
-            prog: meta.selector(),
-            ssum: meta.selector(),
-            sprod: meta.selector(),
-            mod_: meta.selector(),
-            shift: meta.selector(),
-            flag1: meta.selector(),
-            flag2: meta.selector(),
-            flag3: meta.selector(),
-            flag4: meta.selector(),
+impl<T> Out<T> {
+    pub fn new(mut new_fn: impl FnMut() -> T) -> Out<T> {
+        Out {
+            and: new_fn(),
+            xor: new_fn(),
+            or: new_fn(),
+            sum: new_fn(),
+            prog: new_fn(),
+            ssum: new_fn(),
+            sprod: new_fn(),
+            mod_: new_fn(),
+            shift: new_fn(),
+            flag1: new_fn(),
+            flag2: new_fn(),
+            flag3: new_fn(),
+            flag4: new_fn(),
         }
     }
 }
@@ -117,7 +115,7 @@ pub struct TempVarSelectors<const REG_COUNT: usize> {
     pub b: SelectionVector<REG_COUNT>,
     pub c: SelectionVector<REG_COUNT>,
     pub d: SelectionVector<REG_COUNT>,
-    pub out: SelectionVector<REG_COUNT>,
+    pub out: Out<Selector>,
     pub ch: UnChangedSelectors<REG_COUNT>,
 }
 
@@ -130,7 +128,7 @@ impl<const REG_COUNT: usize> TempVarSelectors<REG_COUNT> {
             b: SelectionVector::new(meta),
             c: SelectionVector::new(meta),
             d: SelectionVector::new(meta),
-            out: SelectionVector::new(meta),
+            out: Out::new(|| meta.selector()),
             ch: UnChangedSelectors::new(meta),
         }
     }
