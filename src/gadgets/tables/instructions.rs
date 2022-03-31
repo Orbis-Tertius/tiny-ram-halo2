@@ -82,6 +82,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
                 s.b.row.regs[rj.0].enable(region, 0).unwrap();
                 s.c.row_next.regs[ri.0].enable(region, 0).unwrap();
 
+
+
                 self.and.0.enable(region, 0).unwrap();
                 assign_immediate(region, a)
             }

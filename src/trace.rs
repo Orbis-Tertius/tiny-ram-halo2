@@ -55,6 +55,8 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
                 .enumerate()
                 .map(|(i, word)| {
                     let address = Address(i * WORD_BITS as usize);
+                    // In TinyRAM 2.0 Preamble they specify reading the primary tape
+                    // TODO match the spec, and figure out the non-deterministic tapes location.
                     (address, Accesses::init_memory(address, word))
                 })
                 .collect(),
