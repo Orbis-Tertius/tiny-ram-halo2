@@ -38,7 +38,7 @@ pub struct Trace<const WORD_BITS: u32, const REG_COUNT: usize> {
 #[derive(Debug, Clone)]
 pub struct Mem<const WORD_BITS: u32> {
     // A map from an address to a time ordered vector of access.
-    address: BTreeMap<Address, Accesses>,
+    pub address: BTreeMap<Address, Accesses>,
 }
 
 impl<const WORD_BITS: u32> Mem<WORD_BITS> {
@@ -96,16 +96,23 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
 
 // A time ordered vector of memory instructions.
 #[derive(Debug, Clone, Default)]
-struct Accesses(Vec<Access>);
+pub struct Accesses(pub Vec<Access>);
 
 impl Accesses {
     fn init_memory(address: Address, value: Word) -> Accesses {
         Accesses(vec![Access::Init { address, value }])
     }
+
+    pub fn initial_value(&self) -> Option<Word> {
+        match self.0.first() {
+            Some(Access::Init { value, .. }) => Some(*value),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Access {
+pub enum Access {
     Init {
         /// A word aligned address.
         address: Address,

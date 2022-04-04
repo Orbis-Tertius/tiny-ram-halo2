@@ -206,7 +206,7 @@ mod tests {
         let circuit = ProgCircuit::<WORD_BITS, REG_COUNT> { prog };
         use plotters::prelude::*;
         let root =
-            BitMapBackend::new("layout.png", (15360, 7680 )).into_drawing_area();
+            BitMapBackend::new("layout.png", (15360, 7680)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
             .titled("Prog Circuit Layout", ("sans-serif", 60))
