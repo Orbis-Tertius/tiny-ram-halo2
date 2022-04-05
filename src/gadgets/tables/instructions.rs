@@ -1,7 +1,7 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::Region,
-    plonk::{Advice, Column, ConstraintSystem, Selector},
+    plonk::{Advice, Column, ConstraintSystem, Fixed, Selector},
 };
 
 use crate::{
@@ -51,7 +51,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
     /// TODO multiplex registers into temp vars, and set temp var selectors
     pub fn syn<F: FieldExt>(
         &self,
-        immediate: Column<Advice>,
+        immediate: Column<Fixed>,
         s: TempVarSelectors<REG_COUNT>,
         region: &mut Region<F>,
         inst: trace::Instruction,
@@ -59,7 +59,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
         let assign_immediate = |region: &mut Region<F>, a| {
             if let ImmediateOrRegName::Immediate(word) = a {
                 region
-                    .assign_advice(
+                    .assign_fixed(
                         || format!("immediate: {:0b}", word.0),
                         immediate,
                         0,
@@ -87,7 +87,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
             }
             trace::Instruction::LoadW(LoadW { ri, a }) => {
                 // page 34 fig 10.
-                s.a.row.address.enable(region, 0).unwrap();
+                s.a.row.v_addr.enable(region, 0).unwrap();
                 s.b.row_next.regs[ri.0].enable(region, 0).unwrap();
                 // TODO set sch and sout
 
@@ -95,7 +95,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
                 assign_immediate(region, a)
             }
             trace::Instruction::StoreW(StoreW { ri, a }) => {
-                s.a.row.address.enable(region, 0).unwrap();
+                s.a.row.v_addr.enable(region, 0).unwrap();
                 s.b.row.regs[ri.0].enable(region, 0).unwrap();
 
                 self.store.enable(region, 0).unwrap();
