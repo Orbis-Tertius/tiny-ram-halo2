@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Selector},
 };
 
 use crate::trace;
@@ -21,11 +21,11 @@ pub struct ProgChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProgConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
-    pc: Column<Advice>,
+    pc: Column<Fixed>,
     /// It is unclear what the correct represention of a instruction is.
     /// Exe_inst_t and Prog_inst_pc may even have diffrent representions.
     instruction: Instructions<WORD_BITS, REG_COUNT>,
-    immediate: Column<Advice>,
+    immediate: Column<Fixed>,
 
     s: Selector,
     l: Selector,
@@ -61,11 +61,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     fn configure(
         meta: &mut ConstraintSystem<F>,
     ) -> ProgConfig<WORD_BITS, REG_COUNT> {
-        let pc = meta.advice_column();
+        let pc = meta.fixed_column();
         meta.enable_equality(pc);
 
         let instruction = Instructions::new_configured(meta);
-        let immediate = meta.advice_column();
+        let immediate = meta.fixed_column();
 
         let s = meta.selector();
         let l = meta.selector();
@@ -93,7 +93,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     || format!("{}", inst),
                     |mut region: Region<'_, F>| {
                         region
-                            .assign_advice(
+                            .assign_fixed(
                                 || format!("pc: {}", pc),
                                 config.pc,
                                 0,

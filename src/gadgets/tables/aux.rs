@@ -27,9 +27,8 @@ pub struct ExeRow<const REG_COUNT: usize> {
     pub pc: Selector,
     pub immediate: Selector,
     pub regs: [Selector; REG_COUNT],
-    pub flag: Selector,
-    pub address: Selector,
-    pub value: Selector,
+    // Page 34
+    pub v_addr: Selector,
 }
 
 impl<const REG_COUNT: usize> ExeRow<REG_COUNT> {
@@ -38,9 +37,7 @@ impl<const REG_COUNT: usize> ExeRow<REG_COUNT> {
             pc: meta.selector(),
             immediate: meta.selector(),
             regs: [0; REG_COUNT].map(|_| meta.selector()),
-            flag: meta.selector(),
-            address: meta.selector(),
-            value: meta.selector(),
+            v_addr: meta.selector(),
         }
     }
 }

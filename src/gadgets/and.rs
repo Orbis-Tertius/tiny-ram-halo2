@@ -1,10 +1,12 @@
+use crate::gadgets::tables::even_bits::{
+    EvenBitsChip, EvenBitsConfig, EvenBitsLookup,
+};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
-    dev::MockProver,
     plonk::{
-        Advice, BatchVerifier, Circuit, Column, ConstraintSystem, Error, Expression,
-        Fixed, Instance, Selector,
+        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
+        Instance, Selector,
     },
     poly::Rotation,
 };
@@ -246,8 +248,8 @@ fn expose_public<F: FieldExt>(
 /// In this struct we store the private input variables. We use `Option<F>` because
 /// they won't have any value during key generation. During proving, if any of these
 /// were `None` we would get an error.
-#[derive(Default)]
-pub struct AndCircuit<F: FieldExt, const WORD_BITS: u32 = 8> {
+#[derive(Default, Debug, Clone, Copy)]
+pub struct AndCircuit<F: FieldExt, const WORD_BITS: u32> {
     pub a: Option<F>,
     pub b: Option<F>,
 }
@@ -340,249 +342,188 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
     }
 }
 
-use proptest::prelude::*;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_utils::*;
+    use halo2_proofs::dev::MockProver;
+    use proptest::prelude::*;
 
-use super::tables::even_bits::{EvenBitsChip, EvenBitsConfig, EvenBitsLookup};
-
-prop_compose! {
-  fn valid_triple(word_bits: u32)
-          (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
-          -> (u64, u64, u64) {
-    let c = a & b;
-    (a, b, c)
-  }
-}
-
-proptest! {
-    #[test]
-    fn fp_u128_test(n in 0..u128::MAX) {
-        let a = Fp::from_u128(n);
-        let b = a.get_lower_128();
-        assert_eq!(b, n)
+    prop_compose! {
+      fn valid_triple(word_bits: u32)
+              (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
+              -> (u64, u64, u64) {
+        let c = a & b;
+        (a, b, c)
+      }
     }
 
-    /// proptest does not support testing const generics.
-    #[test]
-    fn all_8_bit_words_mock_prover_test(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
-        mock_prover_test::<8>(a, b)
-    }
-}
-
-proptest! {
-    #![proptest_config(ProptestConfig {
-      cases: 20, .. ProptestConfig::default()
-    })]
-
-    #[test]
-    fn all_8_bit_words_test(s in prop::collection::vec(valid_triple(8), 10)) {
-        gen_proofs_and_verify::<8>(&s, true)
-    }
-
-    #[test]
-    fn all_16_bit_words_mock_prover_test(a in 0..2u64.pow(16), b in 0..2u64.pow(16)) {
-        mock_prover_test::<16>(a, b)
+    fn and<const WORD_BITS: u32>(
+        v: Vec<(u64, u64, u64)>,
+    ) -> Vec<(AndCircuit<Fp, WORD_BITS>, Vec<Fp>)> {
+        v.into_iter()
+            .map(|i| {
+                (
+                    AndCircuit {
+                        a: Some(i.0.into()),
+                        b: Some(i.1.into()),
+                    },
+                    vec![i.2.into()],
+                )
+            })
+            .collect()
     }
 
-    #[test]
-    fn all_16_bit_words_test(s in prop::collection::vec(valid_triple(16), 10)) {
-        gen_proofs_and_verify::<16>(&s, true)
-    }
+    proptest! {
+        #[test]
+        fn fp_u128_test(n in 0..u128::MAX) {
+            let a = Fp::from_u128(n);
+            let b = a.get_lower_128();
+            assert_eq!(b, n)
+        }
 
-    #[test]
-    #[should_panic]
-    fn all_8_bit_words_test_bad_proof(a in 0..2u64.pow(8), b in 0..2u64.pow(8), c in 0..2u64.pow(8)) {
-        prop_assume!(c != a & b);
-        gen_proofs_and_verify::<8>(&[(a, b, c)], false)
-    }
-
-    // TODO mix valid and invalid
-    #[test]
-    #[should_panic]
-    fn all_16_bit_words_test_bad_proof(a in 0..2u64.pow(16), b in 0..2u64.pow(16), c in 0..2u64.pow(16)) {
-        prop_assume!(c != a & b);
-        gen_proofs_and_verify::<16>(&[(a, b, c)], false)
-    }
-}
-
-proptest! {
-    // The case number was picked to run all tests in about 60 seconds on my machine.
-    // TODO use `plonk::BatchVerifier` to speed up tests.
-    #![proptest_config(ProptestConfig {
-      cases: 10, .. ProptestConfig::default()
-    })]
-
-    #[test]
-    fn all_24_bit_words_mock_prover_test(a in 0..2u64.pow(24), b in 0..2u64.pow(24)) {
-        mock_prover_test::<24>(a, b)
-    }
-
-    #[test]
-    fn all_24_bit_words_test(s in prop::collection::vec(valid_triple(24), 10)) {
-        gen_proofs_and_verify::<24>(&s, false)
-    }
-
-    #[test]
-    #[should_panic]
-    fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
-        prop_assume!(c != a & b);
-        gen_proofs_and_verify::<24>(&[(a, b, c)], false)
-    }
-}
-
-// It's used in the proptests
-#[allow(unused)]
-fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64) {
-    let k = 1 + WORD_BITS / 2;
-    let circuit: AndCircuit<Fp, WORD_BITS> = AndCircuit {
-        a: Some(Fp::from(a)),
-        b: Some(Fp::from(b)),
-    };
-
-    let c = Fp::from(a & b);
-
-    // Arrange the public input. We expose the bitwise AND result in row 0
-    // of the instance column, so we position it there in our public inputs.
-    let public_inputs = vec![c];
-
-    // Given the correct public input, our circuit will verify.
-    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
-    assert_eq!(prover.verify(), Ok(()));
-}
-
-#[test]
-fn zeros_mock_prover_test() {
-    const WORD_BITS: u32 = 24;
-    let a = 0;
-    let b = 0;
-    let k = 1 + WORD_BITS / 2;
-    let circuit = AndCircuit::<Fp, WORD_BITS> {
-        a: Some(Fp::from(a)),
-        b: Some(Fp::from(b)),
-    };
-
-    let c = Fp::from(a & b);
-
-    // Arrange the public input. We expose the bitwise AND result in row 0
-    // of the instance column, so we position it there in our public inputs.
-    let public_inputs = vec![c];
-
-    // Given the correct public input, our circuit will verify.
-    let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
-    assert_eq!(prover.verify(), Ok(()));
-}
-
-// TODO move into test module
-// It's used in the proptests
-#[allow(unused)]
-fn gen_proofs_and_verify<const WORD_BITS: u32>(
-    inputs: &[(u64, u64, u64)],
-    retry: bool,
-) {
-    use halo2_proofs::{
-        plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
-        poly::commitment::Params,
-        transcript::{Blake2bRead, Blake2bWrite},
-    };
-    use pasta_curves::{vesta, EqAffine};
-    use rand_core::OsRng;
-
-    let k = 1 + WORD_BITS / 2;
-    let params: Params<EqAffine> = halo2_proofs::poly::commitment::Params::new(k);
-    let empty_circuit = AndCircuit::<Fp, WORD_BITS>::default();
-    let vk = keygen_vk(&params, &empty_circuit).unwrap();
-
-    let pk = keygen_pk(&params, vk, &empty_circuit).unwrap();
-
-    let proofs: Vec<(Vec<u8>, Fp)> = inputs
-        .iter()
-        .map(|(a, b, c)| {
-            let circuit = AndCircuit::<Fp, WORD_BITS> {
-                a: Some(Fp::from(*a)),
-                b: Some(Fp::from(*b)),
-            };
-            let c = Fp::from(*c);
-
-            let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
-            create_proof(
-                &params,
-                &pk,
-                &[circuit],
-                &[&[&[c]]],
-                &mut OsRng,
-                &mut transcript,
-            )
-            .expect("Failed to create proof");
-
-            let proof: Vec<u8> = transcript.finalize();
-            (proof, c)
-        })
-        .collect();
-
-    let mut verifier = BatchVerifier::new(&params, OsRng);
-    for (proof, c) in &proofs {
-        let mut transcript = Blake2bRead::init(&proof[..]);
-
-        verifier = verify_proof(
-            &params,
-            pk.get_vk(),
-            verifier,
-            &[&[&[*c]]],
-            &mut transcript,
-        )
-        .expect("could not verify_proof");
-    }
-
-    let verified = verifier.finalize();
-    if !retry {
-        assert!(verified, "One of the proofs could not be verified");
-    } else if !verified {
-        for (proof, c) in proofs {
-            let mut verifier = SingleVerifier::new(&params);
-            let mut transcript = Blake2bRead::init(&proof[..]);
-
-            verify_proof(
-                &params,
-                pk.get_vk(),
-                verifier,
-                &[&[&[c]]],
-                &mut transcript,
-            )
-            .expect("could not verify_proof");
+        /// proptest does not support testing const generics.
+        #[test]
+        fn all_8_bit_words_mock_prover_test(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
+            mock_prover_test::<8>(a, b)
         }
     }
-}
 
-#[test]
-fn circuit_layout_test() {
-    const WORD_BITS: u32 = 8;
-    let k = 5;
+    proptest! {
+        #![proptest_config(ProptestConfig {
+          cases: 20, .. ProptestConfig::default()
+        })]
 
-    // Prepare the private and public inputs to the circuit!
-    const A: u64 = 7;
-    const B: u64 = 6;
-    let a = Fp::from(A);
-    let b = Fp::from(B);
+        #[test]
+        fn all_8_bit_words_test(s in prop::collection::vec(valid_triple(8), 10)) {
+            gen_proofs_and_verify::<8, _>(and::<8>(s))
+        }
 
-    // Instantiate the circuit with the private inputs.
-    let circuit = AndCircuit::<Fp, WORD_BITS> {
-        a: Some(a),
-        b: Some(b),
-    };
-    use plotters::prelude::*;
-    let root = BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
-    root.fill(&WHITE).unwrap();
-    let root = root
-        .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))
-        .unwrap();
+        #[test]
+        fn all_16_bit_words_mock_prover_test(a in 0..2u64.pow(16), b in 0..2u64.pow(16)) {
+            mock_prover_test::<16>(a, b)
+        }
 
-    halo2_proofs::dev::CircuitLayout::default()
-        .mark_equality_cells(true)
-        .show_equality_constraints(true)
-        // The first argument is the size parameter for the circuit.
-        .render(k, &circuit, &root)
-        .unwrap();
+        #[test]
+        fn all_16_bit_words_test(s in prop::collection::vec(valid_triple(16), 10)) {
+            gen_proofs_and_verify::<16, _>(and::<16>(s))
+        }
 
-    let dot_string = halo2_proofs::dev::circuit_dot_graph(&circuit);
-    let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
-    std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+        #[test]
+        fn all_8_bit_words_test_bad_proof(a in 0..2u64.pow(8), b in 0..2u64.pow(8), c in 0..2u64.pow(8)) {
+            prop_assume!(c != a & b);
+            let circuit = AndCircuit::<Fp, 8> {a: Some(a.into()), b: Some(b.into())};
+            gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into()])
+        }
+
+        // TODO mix valid and invalid
+        #[test]
+        fn all_16_bit_words_test_bad_proof(a in 0..2u64.pow(16), b in 0..2u64.pow(16), c in 0..2u64.pow(16)) {
+            prop_assume!(c != a & b);
+            let circuit = AndCircuit::<Fp, 16> {a: Some(a.into()), b: Some(b.into())};
+            gen_proofs_and_verify_should_fail::<16, _>(circuit, vec![c.into()])
+        }
+    }
+
+    proptest! {
+        // The case number was picked to run all tests in about 60 seconds on my machine.
+        // TODO use `plonk::BatchVerifier` to speed up tests.
+        #![proptest_config(ProptestConfig {
+          cases: 10, .. ProptestConfig::default()
+        })]
+
+        #[test]
+        fn all_24_bit_words_mock_prover_test(a in 0..2u64.pow(24), b in 0..2u64.pow(24)) {
+            mock_prover_test::<24>(a, b)
+        }
+
+        #[test]
+        fn all_24_bit_words_test(s in prop::collection::vec(valid_triple(24), 10)) {
+            gen_proofs_and_verify::<24, _>(and::<24>(s))
+        }
+
+        #[test]
+        fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
+            prop_assume!(c != a & b);
+            let circuit = AndCircuit::<Fp, 24> {a: Some(a.into()), b: Some(b.into())};
+            gen_proofs_and_verify_should_fail::<24, _>(circuit, vec![c.into()])
+        }
+    }
+
+    // It's used in the proptests
+    fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64) {
+        let k = 1 + WORD_BITS / 2;
+        let circuit: AndCircuit<Fp, WORD_BITS> = AndCircuit {
+            a: Some(Fp::from(a)),
+            b: Some(Fp::from(b)),
+        };
+
+        let c = Fp::from(a & b);
+
+        // Arrange the public input. We expose the bitwise AND result in row 0
+        // of the instance column, so we position it there in our public inputs.
+        let public_inputs = vec![c];
+
+        // Given the correct public input, our circuit will verify.
+        let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn zeros_mock_prover_test() {
+        const WORD_BITS: u32 = 24;
+        let a = 0;
+        let b = 0;
+        let k = 1 + WORD_BITS / 2;
+        let circuit = AndCircuit::<Fp, WORD_BITS> {
+            a: Some(Fp::from(a)),
+            b: Some(Fp::from(b)),
+        };
+
+        let c = Fp::from(a & b);
+
+        // Arrange the public input. We expose the bitwise AND result in row 0
+        // of the instance column, so we position it there in our public inputs.
+        let public_inputs = vec![c];
+
+        // Given the correct public input, our circuit will verify.
+        let prover = MockProver::run(k, &circuit, vec![public_inputs]).unwrap();
+        assert_eq!(prover.verify(), Ok(()));
+    }
+
+    #[test]
+    fn circuit_layout_test() {
+        const WORD_BITS: u32 = 8;
+        let k = 5;
+
+        // Prepare the private and public inputs to the circuit!
+        const A: u64 = 7;
+        const B: u64 = 6;
+        let a = Fp::from(A);
+        let b = Fp::from(B);
+
+        // Instantiate the circuit with the private inputs.
+        let circuit = AndCircuit::<Fp, WORD_BITS> {
+            a: Some(a),
+            b: Some(b),
+        };
+        use plotters::prelude::*;
+        let root =
+            BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
+        root.fill(&WHITE).unwrap();
+        let root = root
+            .titled("Bitwise AND Circuit Layout", ("sans-serif", 60))
+            .unwrap();
+
+        halo2_proofs::dev::CircuitLayout::default()
+            .mark_equality_cells(true)
+            .show_equality_constraints(true)
+            // The first argument is the size parameter for the circuit.
+            .render(k, &circuit, &root)
+            .unwrap();
+
+        let dot_string = halo2_proofs::dev::circuit_dot_graph(&circuit);
+        let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
+        std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+    }
 }

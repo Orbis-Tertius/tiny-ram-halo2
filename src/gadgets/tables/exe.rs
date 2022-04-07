@@ -30,7 +30,8 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     time: Column<Fixed>,
     pc: Column<Advice>,
     instruction: Instructions<WORD_BITS, REG_COUNT>,
-    immediate: Column<Advice>,
+    // TODO make advice
+    immediate: Column<Fixed>,
     reg: [Column<Advice>; REG_COUNT],
     flag: Column<Advice>,
     address: Column<Advice>,
@@ -84,7 +85,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let instruction = Instructions::new_configured(meta);
 
-        let immediate = meta.advice_column();
+        let immediate = meta.fixed_column();
 
         // We cannot write `[meta.advice_column(); REG_COUNT]`,
         // That would produce an array of the same advice copied REG_COUNT times.
