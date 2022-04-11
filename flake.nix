@@ -5,11 +5,12 @@
       # We have to use the fork to fix nix build https://github.com/cargo2nix/cargo2nix/issues/233
       cargo2nix.url = "github:flibrary/cargo2nix";
       nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+      nixpkgs-master.url = "github:NixOS/nixpkgs/master";
       rust-overlay.url = "github:oxalica/rust-overlay";
       flake-utils.url = "github:numtide/flake-utils";
     };
 
-  outputs = { self, cargo2nix, flake-utils, nixpkgs, rust-overlay, ... }:
+  outputs = { self, cargo2nix, flake-utils, nixpkgs, nixpkgs-master, rust-overlay, ... }:
     with builtins;
     flake-utils.lib.eachSystem [ "x86_64-linux" ]
       (system:
@@ -25,6 +26,7 @@
 
                 inherit system;
               };
+            pkgs-master = import nixpkgs-master { inherit system; };
 
           rustChannel = "1.59.0";
           rustPkgs =
@@ -106,7 +108,7 @@
             in
             rustPkgs.workspaceShell {
               # inherit rustChannel;
-              nativeBuildInputs = with pkgs; [ rust-analyzer rustup cargo2nix.defaultPackage.${system} graphviz ];
+              nativeBuildInputs = [ pkgs-master.rust-analyzer ] ++ (with pkgs; [ rustup cargo2nix.defaultPackage.${system} graphviz ]);
               shellHook =
                 ''
                   cp --no-preserve=mode ${rust-toolchain} rust-toolchain.toml
