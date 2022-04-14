@@ -27,11 +27,11 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 #[derive(Debug, Clone, Copy)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // Not sure this is right.
-    time: Column<Fixed>,
+    time: Column<Advice>,
     pc: Column<Advice>,
     instruction: Instructions<WORD_BITS, REG_COUNT>,
     // TODO make advice
-    immediate: Column<Fixed>,
+    immediate: Column<Advice>,
     reg: [Column<Advice>; REG_COUNT],
     flag: Column<Advice>,
     address: Column<Advice>,
@@ -48,7 +48,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-    temp_vars: TempVarSelectors<REG_COUNT>,
+    temp_vars: TempVarSelectors<REG_COUNT, Advice>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -77,15 +77,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
-        let time = meta.fixed_column();
-        meta.enable_constant(time);
+        let time = meta.advice_column();
 
         let pc = meta.advice_column();
         meta.enable_equality(pc);
 
         let instruction = Instructions::new_configured(meta);
 
-        let immediate = meta.fixed_column();
+        let immediate = meta.advice_column();
 
         // We cannot write `[meta.advice_column(); REG_COUNT]`,
         // That would produce an array of the same advice copied REG_COUNT times.
@@ -136,7 +135,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 || format!("{}", step.instruction),
                 |mut region: Region<'_, F>| {
                     region
-                        .assign_fixed(
+                        .assign_advice(
                             || format!("time: {}", step.time.0),
                             config.time,
                             0,
@@ -168,7 +167,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct ExeCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
     pub trace: Option<Trace<WORD_BITS, REG_COUNT>>,
 }
@@ -202,10 +201,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
         let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
-        let trace = self
-            .trace
-            .as_ref()
-            .expect("A trace must be set before synthesis");
+        let trace = self.trace.as_ref().ok_or(Error::Synthesis)?;
+
         for step in trace.exe.iter() {
             exe_chip
                 .step(layouter.namespace(|| format!("{}", step.instruction)), step)
@@ -221,7 +218,10 @@ mod tests {
     use halo2_proofs::dev::MockProver;
     use pasta_curves::Fp;
 
-    use crate::{gadgets::tables::exe::ExeCircuit, trace::*};
+    use crate::{
+        gadgets::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
+        trace::*,
+    };
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
     ) -> Trace<WORD_BITS, REG_COUNT> {
@@ -301,5 +301,30 @@ mod tests {
         assert_eq!(trace.ans.0, 1);
 
         mock_prover_test::<8, 8>(trace)
+    }
+
+    #[test]
+    fn two_programs() {
+        let ans = {
+            let ans = Program(vec![Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            })]);
+            let ans = ans.eval::<8, 8>(Mem::new(&[], &[]));
+            assert_eq!(ans.ans.0, 1);
+            ans
+        };
+
+        let l_and_ans = load_and_answer::<8, 8>();
+        assert_eq!(l_and_ans.ans.0, 1);
+
+        gen_proofs_and_verify::<8, _>(vec![
+            (ExeCircuit { trace: Some(ans) }, vec![]),
+            (
+                ExeCircuit {
+                    trace: Some(l_and_ans),
+                },
+                vec![],
+            ),
+        ]);
     }
 }

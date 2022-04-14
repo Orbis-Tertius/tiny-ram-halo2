@@ -1,13 +1,32 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::Region,
-    plonk::{Advice, Column, ConstraintSystem, Fixed, Selector},
+    circuit::{AssignedCell, Region},
+    plonk::{
+        Advice, Assigned, Column, ColumnType, ConstraintSystem, Error, Fixed,
+        Instance, Selector,
+    },
 };
 
 use crate::{
     gadgets::and::{AndChip, AndConfig},
     trace::{self, And, Answer, ImmediateOrRegName, LoadW, StoreW},
 };
+
+pub trait NewColumn<F: FieldExt>: ColumnType {
+    fn new_column(meta: &mut ConstraintSystem<F>) -> Column<Self>;
+}
+
+impl<F: FieldExt> NewColumn<F> for Advice {
+    fn new_column(meta: &mut ConstraintSystem<F>) -> Column<Advice> {
+        meta.advice_column()
+    }
+}
+
+impl<F: FieldExt> NewColumn<F> for Instance {
+    fn new_column(meta: &mut ConstraintSystem<F>) -> Column<Instance> {
+        meta.instance_column()
+    }
+}
 
 use super::aux::TempVarSelectors;
 
@@ -49,65 +68,80 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
     /// TODO recompute instruction here, as an extra check.
     /// TODO set immediate selector in this match.
     /// TODO multiplex registers into temp vars, and set temp var selectors
-    pub fn syn<F: FieldExt>(
+    pub fn syn<F: FieldExt, C: NewColumn<F>>(
         &self,
-        immediate: Column<Fixed>,
-        s: TempVarSelectors<REG_COUNT>,
+        immediate: Column<C>,
+        s: TempVarSelectors<REG_COUNT, C>,
         region: &mut Region<F>,
         inst: trace::Instruction,
     ) {
-        let assign_immediate = |region: &mut Region<F>, a| {
-            if let ImmediateOrRegName::Immediate(word) = a {
-                region
-                    .assign_fixed(
-                        || format!("immediate: {:0b}", word.0),
-                        immediate,
-                        0,
-                        || Ok(F::from_u128(word.0 as u128)),
-                    )
-                    .unwrap();
-            }
+        // let assign_immediate = |region: &mut Region<F>, a| {
+        //     if let ImmediateOrRegName::Immediate(word) = a {
+                // region
+                //     .assign_fixed(
+                //         immediate,
+                //         || format!("immediate: {:0b}", word.0),
+                //         0,
+                //         || Ok(F::from_u128(word.0 as u128)),
+                //     )
+                //     .unwrap();
+            // }
             // Else immediate is zero
-        };
-        match inst {
-            trace::Instruction::And(And { ri, rj, a }) => {
-                match a {
-                    ImmediateOrRegName::Immediate(_) => {
-                        s.a.row.immediate.enable(region, 0).unwrap()
-                    }
-                    ImmediateOrRegName::RegName(r) => {
-                        s.a.row.regs[r.0].enable(region, 0).unwrap()
-                    }
-                };
-                s.b.row.regs[rj.0].enable(region, 0).unwrap();
-                s.c.row_next.regs[ri.0].enable(region, 0).unwrap();
+        // };
+        // match inst {
+        //     trace::Instruction::And(And { ri, rj, a }) => {
+        //         match a {
+        //             ImmediateOrRegName::Immediate(_) => {
+        //                 AdviceOrInstance::assign_in_region(
+        //                     region,
+        //                     s.a.row.immediate,
+        //                     || format!("immediate: {:0b}", 1),
+        //                     0,
+        //                     || Ok(F::from_u128(1 as u128)),
+        //                 )
+        //                 .unwrap();
+        //             }
+        //             ImmediateOrRegName::RegName(r) => {
+        //                 AdviceOrInstance::assign_in_region(
+        //                     region,
+        //                     s.a.row.regs[r.0],
+        //                     || format!("r{}: {}", r.0, 1),
+        //                     0,
+        //                     || Ok(F::from_u128(1 as u128)),
+        //                 )
+        //                 .unwrap();
+        //             }
+        //         };
+        //         s.b.row.regs[rj.0].enable(region, 0).unwrap();
+        //         s.c.row_next.regs[ri.0].enable(region, 0).unwrap();
 
-                self.and.0.enable(region, 0).unwrap();
-                assign_immediate(region, a)
-            }
-            trace::Instruction::LoadW(LoadW { ri, a }) => {
-                // page 34 fig 10.
-                s.a.row.v_addr.enable(region, 0).unwrap();
-                s.b.row_next.regs[ri.0].enable(region, 0).unwrap();
-                // TODO set sch and sout
+        //         self.and.0.enable(region, 0).unwrap();
+        //         assign_immediate(region, a)
+        //     }
+        //     trace::Instruction::LoadW(LoadW { ri, a }) => {
+        //         // page 34 fig 10.
+        //         s.a.row.v_addr.enable(region, 0).unwrap();
+        //         s.b.row_next.regs[ri.0].enable(region, 0).unwrap();
+        //         // TODO set sch and sout
 
-                self.load.enable(region, 0).unwrap();
-                assign_immediate(region, a)
-            }
-            trace::Instruction::StoreW(StoreW { ri, a }) => {
-                s.a.row.v_addr.enable(region, 0).unwrap();
-                s.b.row.regs[ri.0].enable(region, 0).unwrap();
+        //         self.load.enable(region, 0).unwrap();
+        //         assign_immediate(region, a)
+        //     }
+        //     trace::Instruction::StoreW(StoreW { ri, a }) => {
+        //         s.a.row.v_addr.enable(region, 0).unwrap();
+        //         s.b.row.regs[ri.0].enable(region, 0).unwrap();
 
-                self.store.enable(region, 0).unwrap();
-                assign_immediate(region, a)
-            }
-            trace::Instruction::Answer(Answer { a }) => {
-                // TODO answer Instruction selectors
-                // This is not well specified by the paper (page 35).
+        //         self.store.enable(region, 0).unwrap();
+        //         assign_immediate(region, a)
+        //     }
+        //     trace::Instruction::Answer(Answer { a }) => {
+        //         // TODO answer Instruction selectors
+        //         // This is not well specified by the paper (page 35).
 
-                self.answer.enable(region, 0).unwrap();
-                assign_immediate(region, a)
-            }
-        }
+        //         self.answer.enable(region, 0).unwrap();
+        //         assign_immediate(region, a)
+        //     }
+        // }
+        todo!()
     }
 }

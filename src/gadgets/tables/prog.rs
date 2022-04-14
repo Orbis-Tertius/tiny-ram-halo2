@@ -3,13 +3,13 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Selector},
+    plonk::{Circuit, Column, ConstraintSystem, Error, Fixed, Instance},
 };
 
 use crate::trace;
 
 use super::{
-    aux::{SelectionVector, TempVarSelectors},
+    aux::TempVarSelectors,
     even_bits::{EvenBitsChip, EvenBitsConfig},
     instructions::Instructions,
 };
@@ -25,12 +25,12 @@ pub struct ProgConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// It is unclear what the correct represention of a instruction is.
     /// Exe_inst_t and Prog_inst_pc may even have diffrent representions.
     instruction: Instructions<WORD_BITS, REG_COUNT>,
-    immediate: Column<Fixed>,
+    immediate: Column<Instance>,
 
-    s: Selector,
-    l: Selector,
+    s: Column<Instance>,
+    l: Column<Instance>,
 
-    temp_vars: TempVarSelectors<REG_COUNT>,
+    temp_vars: TempVarSelectors<REG_COUNT, Instance>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -65,10 +65,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         meta.enable_equality(pc);
 
         let instruction = Instructions::new_configured(meta);
-        let immediate = meta.fixed_column();
+        let immediate = meta.instance_column();
 
-        let s = meta.selector();
-        let l = meta.selector();
+        let s = meta.instance_column();
+        let l = meta.instance_column();
 
         let temp_vars = TempVarSelectors::new(meta);
         ProgConfig {

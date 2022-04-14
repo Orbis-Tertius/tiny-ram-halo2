@@ -159,7 +159,7 @@ pub struct Step<const REG_COUNT: usize> {
     pub time: Time,
     pub pc: ProgCount,
     pub instruction: Instruction,
-    pub regs: Registers<REG_COUNT>,
+    pub regs: Registers<REG_COUNT, Word>,
 }
 
 /// Docs for a variant are on each variant's struct,
@@ -245,7 +245,10 @@ impl Display for ImmediateOrRegName {
 }
 
 impl ImmediateOrRegName {
-    fn get<const REG_COUNT: usize>(&self, regs: &Registers<REG_COUNT>) -> Word {
+    fn get<const REG_COUNT: usize>(
+        &self,
+        regs: &Registers<REG_COUNT, Word>,
+    ) -> Word {
         match self {
             ImmediateOrRegName::Immediate(w) => *w,
             ImmediateOrRegName::RegName(r) => regs[*r],
@@ -253,24 +256,31 @@ impl ImmediateOrRegName {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Registers<const REG_COUNT: usize>([Word; REG_COUNT]);
+#[derive(Debug, Clone, Copy)]
+pub struct Registers<const REG_COUNT: usize, T>(pub [T; REG_COUNT]);
 
-impl<const REG_COUNT: usize> Default for Registers<REG_COUNT> {
+impl<const REG_COUNT: usize, T: Copy> Registers<REG_COUNT, T> {
+    pub fn set(mut self, i: RegName, v: T) -> Self {
+        self[i] = v;
+        self
+    }
+}
+
+impl<const REG_COUNT: usize> Default for Registers<REG_COUNT, Word> {
     fn default() -> Self {
         Registers([Word::default(); REG_COUNT])
     }
 }
 
-impl<const REG_COUNT: usize> Index<RegName> for Registers<REG_COUNT> {
-    type Output = Word;
+impl<const REG_COUNT: usize, T> Index<RegName> for Registers<REG_COUNT, T> {
+    type Output = T;
 
     fn index(&self, index: RegName) -> &Self::Output {
         &self.0[index.0]
     }
 }
 
-impl<const REG_COUNT: usize> IndexMut<RegName> for Registers<REG_COUNT> {
+impl<const REG_COUNT: usize, T> IndexMut<RegName> for Registers<REG_COUNT, T> {
     fn index_mut(&mut self, index: RegName) -> &mut Self::Output {
         &mut self.0[index.0]
     }
@@ -313,7 +323,7 @@ impl Program {
         mut mem: Mem<WORD_BITS>,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         let prog = self;
-        let mut regs = Registers::<REG_COUNT>::default();
+        let mut regs = Registers::<REG_COUNT, Word>::default();
         let mut pc = ProgCount(0);
         let mut time = Time(0);
         let mut exe = Vec::with_capacity(100);
