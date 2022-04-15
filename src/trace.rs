@@ -259,6 +259,12 @@ impl ImmediateOrRegName {
 #[derive(Debug, Clone, Copy)]
 pub struct Registers<const REG_COUNT: usize, T>(pub [T; REG_COUNT]);
 
+impl<const REG_COUNT: usize, T> From<[T; REG_COUNT]> for Registers<REG_COUNT, T> {
+    fn from(arr: [T; REG_COUNT]) -> Self {
+        Registers(arr)
+    }
+}
+
 impl<const REG_COUNT: usize, T: Copy> Registers<REG_COUNT, T> {
     pub fn set(mut self, i: RegName, v: T) -> Self {
         self[i] = v;

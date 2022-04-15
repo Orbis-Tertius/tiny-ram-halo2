@@ -77,16 +77,16 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
     ) {
         // let assign_immediate = |region: &mut Region<F>, a| {
         //     if let ImmediateOrRegName::Immediate(word) = a {
-                // region
-                //     .assign_fixed(
-                //         immediate,
-                //         || format!("immediate: {:0b}", word.0),
-                //         0,
-                //         || Ok(F::from_u128(word.0 as u128)),
-                //     )
-                //     .unwrap();
-            // }
-            // Else immediate is zero
+        // region
+        //     .assign_fixed(
+        //         immediate,
+        //         || format!("immediate: {:0b}", word.0),
+        //         0,
+        //         || Ok(F::from_u128(word.0 as u128)),
+        //     )
+        //     .unwrap();
+        // }
+        // Else immediate is zero
         // };
         // match inst {
         //     trace::Instruction::And(And { ri, rj, a }) => {

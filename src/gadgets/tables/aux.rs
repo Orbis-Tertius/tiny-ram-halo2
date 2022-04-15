@@ -5,7 +5,7 @@ use halo2_proofs::{
 };
 
 use crate::{
-    assign::NewColumn,
+    assign::{NewColumn, PushRow},
     trace::{self, And, LoadW, RegName, Registers, StoreW},
 };
 
@@ -245,8 +245,8 @@ pub enum SelectionA {
 pub struct SelectiorsA<const REG_COUNT: usize, C> {
     pub pc_next: C,
 
-    pub reg: [C; REG_COUNT],
-    pub reg_next: [C; REG_COUNT],
+    pub reg: Registers<REG_COUNT, C>,
+    pub reg_next: Registers<REG_COUNT, C>,
 
     pub a: C,
 
@@ -263,12 +263,44 @@ impl<const REG_COUNT: usize, C: ColumnType> SelectiorsA<REG_COUNT, Column<C>> {
         SelectiorsA {
             pc_next: meta.new_column(),
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
-            reg: [0; REG_COUNT].map(|_| meta.new_column()),
-            reg_next: [0; REG_COUNT].map(|_| meta.new_column()),
+            reg: [0; REG_COUNT].map(|_| meta.new_column()).into(),
+            reg_next: [0; REG_COUNT].map(|_| meta.new_column()).into(),
             a: meta.new_column(),
             v_addr: meta.new_column(),
             temp_var_a: meta.new_column(),
         }
+    }
+}
+
+impl<const REG_COUNT: usize, C> SelectiorsA<REG_COUNT, C> {
+    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+        self,
+        region: &mut R,
+        vals: SelectiorsA<REG_COUNT, bool>,
+    ) {
+        let Self {
+            pc_next,
+            reg,
+            reg_next,
+            a,
+            v_addr,
+            temp_var_a,
+        } = self;
+
+        region.push_cell(pc_next, vals.pc_next.into()).unwrap();
+
+        for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+        for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+
+        region.push_cell(a, vals.a.into()).unwrap();
+        region.push_cell(v_addr, vals.v_addr.into()).unwrap();
+        region
+            .push_cell(temp_var_a, vals.temp_var_a.into())
+            .unwrap();
     }
 }
 
@@ -348,6 +380,39 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
     }
 }
 
+impl<const REG_COUNT: usize, C> SelectiorsB<REG_COUNT, C> {
+    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+        self,
+        region: &mut R,
+        vals: SelectiorsB<REG_COUNT, bool>,
+    ) {
+        let Self {
+            pc,
+            pc_next,
+            reg,
+            reg_next,
+            a,
+            temp_var_b,
+            one,
+        } = self;
+
+        region.push_cell(pc_next, vals.pc_next.into()).unwrap();
+
+        for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+        for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+
+        region.push_cell(a, vals.a.into()).unwrap();
+        region.push_cell(one, vals.one.into()).unwrap();
+        region
+            .push_cell(temp_var_b, vals.temp_var_b.into())
+            .unwrap();
+    }
+}
+
 /// Variants ending with `N` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
 pub enum SelectionC {
@@ -409,6 +474,35 @@ impl<const REG_COUNT: usize> From<SelectionC> for SelectiorsC<REG_COUNT, bool> {
             SelectionC::Zero => r.zero = true,
         };
         r
+    }
+}
+
+impl<const REG_COUNT: usize, C> SelectiorsC<REG_COUNT, C> {
+    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+        self,
+        region: &mut R,
+        vals: SelectiorsC<REG_COUNT, bool>,
+    ) {
+        let Self {
+            reg,
+            reg_next,
+            a,
+            temp_var_c,
+            zero,
+        } = self;
+
+        for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+        for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+
+        region.push_cell(a, vals.a.into()).unwrap();
+        region.push_cell(zero, vals.zero.into()).unwrap();
+        region
+            .push_cell(temp_var_c, vals.temp_var_c.into())
+            .unwrap();
     }
 }
 
@@ -484,5 +578,37 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
             SelectionD::Unset => (),
         };
         r
+    }
+}
+
+impl<const REG_COUNT: usize, C> SelectiorsD<REG_COUNT, C> {
+    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+        self,
+        region: &mut R,
+        vals: SelectiorsD<REG_COUNT, bool>,
+    ) {
+        let Self {
+            pc,
+            reg,
+            reg_next,
+            a,
+            temp_var_d,
+            zero,
+        } = self;
+
+        region.push_cell(pc, vals.pc.into()).unwrap();
+
+        for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+        for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+
+        region.push_cell(a, vals.a.into()).unwrap();
+        region.push_cell(zero, vals.zero.into()).unwrap();
+        region
+            .push_cell(temp_var_d, vals.temp_var_d.into())
+            .unwrap();
     }
 }
