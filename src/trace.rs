@@ -265,6 +265,12 @@ impl<const REG_COUNT: usize, T> From<[T; REG_COUNT]> for Registers<REG_COUNT, T>
     }
 }
 
+impl<const REG_COUNT: usize, A> Registers<REG_COUNT, A> {
+    pub fn convert_elems<B: From<A>>(self) -> Registers<REG_COUNT, B> {
+        Registers(self.0.map(B::from))
+    }
+}
+
 impl<const REG_COUNT: usize, T: Copy> Registers<REG_COUNT, T> {
     pub fn set(mut self, i: RegName, v: T) -> Self {
         self[i] = v;

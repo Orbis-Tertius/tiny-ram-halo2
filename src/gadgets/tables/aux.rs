@@ -1,7 +1,7 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Region},
-    plonk::{Advice, Column, ColumnType, ConstraintSystem, Selector},
+    plonk::{self, Advice, Column, ColumnType, ConstraintSystem, Selector},
 };
 
 use crate::{
@@ -49,6 +49,22 @@ impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
             flag: new_fn(),
         }
     }
+
+    fn push_cells<F: FieldExt, R: PushRow<F, T>>(
+        self,
+        region: &mut R,
+        vals: UnChangedSelectors<REG_COUNT, bool>,
+    ) -> Result<(), plonk::Error> {
+        let Self { regs, pc, flag } = self;
+
+        for (rc, rv) in regs.0.into_iter().zip(vals.regs.0.into_iter()) {
+            region.push_cell(rc, rv.into()).unwrap();
+        }
+        region.push_cell(pc, vals.pc.into())?;
+        region.push_cell(flag, vals.flag.into())?;
+
+        Ok(())
+    }
 }
 
 /// This corresponds to `sout` in the paper (page 24).
@@ -94,13 +110,53 @@ impl<T> Out<T> {
     }
 }
 
+impl<C: ColumnType> Out<C> {
+    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+        self,
+        region: &mut R,
+        vals: Out<bool>,
+    ) -> Result<(), plonk::Error> {
+        let Self {
+            and,
+            xor,
+            or,
+            sum,
+            prog,
+            ssum,
+            sprod,
+            mod_,
+            shift,
+            flag1,
+            flag2,
+            flag3,
+            flag4,
+        } = self;
+
+        region.push_cell(and, vals.and.into())?;
+        region.push_cell(xor, vals.xor.into())?;
+        region.push_cell(or, vals.or.into())?;
+        region.push_cell(sum, vals.sum.into())?;
+        region.push_cell(prog, vals.prog.into())?;
+        region.push_cell(ssum, vals.ssum.into())?;
+        region.push_cell(sprod, vals.sprod.into())?;
+        region.push_cell(mod_, vals.mod_.into())?;
+        region.push_cell(shift, vals.shift.into())?;
+        region.push_cell(flag1, vals.flag1.into())?;
+        region.push_cell(flag2, vals.flag2.into())?;
+        region.push_cell(flag3, vals.flag3.into())?;
+        region.push_cell(flag4, vals.flag4.into())?;
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct TempVarSelectors<const REG_COUNT: usize, C: ColumnType> {
     pub a: SelectiorsA<REG_COUNT, Column<C>>,
     pub b: SelectiorsB<REG_COUNT, Column<C>>,
     pub c: SelectiorsC<REG_COUNT, Column<C>>,
     pub d: SelectiorsD<REG_COUNT, Column<C>>,
-    pub out: Out<Selector>,
+    pub out: Out<Column<C>>,
     pub ch: UnChangedSelectors<REG_COUNT, Column<C>>,
 }
 
@@ -116,9 +172,28 @@ impl<const REG_COUNT: usize, C: ColumnType> TempVarSelectors<REG_COUNT, C> {
             b: SelectiorsB::new_columns(meta),
             c: SelectiorsC::new_columns(meta),
             d: SelectiorsD::new_columns(meta),
-            out: Out::new(|| meta.selector()),
+            out: Out::new(|| meta.new_column()),
             ch: UnChangedSelectors::new(|| meta.new_column()),
         }
+    }
+
+    fn push_cells<F: FieldExt, R: PushRow<F, Column<C>>>(
+        self,
+        region: &mut R,
+        vals: TempVarSelectorsRow<REG_COUNT>,
+    ) {
+        let Self {
+            a,
+            b,
+            c,
+            d,
+            out,
+            ch,
+        } = self;
+        a.push_cells(region, vals.a.into());
+        b.push_cells(region, vals.b.into());
+        c.push_cells(region, vals.c.into());
+        d.push_cells(region, vals.d.into());
     }
 }
 
@@ -229,8 +304,8 @@ impl<const REG_COUNT: usize> From<trace::Instruction>
 pub enum SelectionA {
     PcN,
 
-    Reg(usize),
-    RegN(usize),
+    Reg(RegName),
+    RegN(RegName),
 
     A,
 
@@ -253,6 +328,28 @@ pub struct SelectiorsA<const REG_COUNT: usize, C> {
     pub v_addr: C,
     /// Selects the temporary var associated with this selection vector.
     pub temp_var_a: C,
+}
+
+impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
+    fn from(s: SelectionA) -> Self {
+        let mut r = SelectiorsA {
+            pc_next: false,
+            reg: Registers([false; REG_COUNT]),
+            reg_next: Registers([false; REG_COUNT]),
+            a: false,
+            v_addr: false,
+            temp_var_a: false,
+        };
+        match s {
+            SelectionA::Reg(i) => r.reg[i] = true,
+            SelectionA::RegN(i) => r.reg_next[i] = true,
+            SelectionA::A => r.a = true,
+            SelectionA::TempVarA => r.temp_var_a = true,
+            SelectionA::PcN => r.pc_next = true,
+            SelectionA::VAddr => r.v_addr = true,
+        };
+        r
+    }
 }
 
 impl<const REG_COUNT: usize, C: ColumnType> SelectiorsA<REG_COUNT, Column<C>> {
