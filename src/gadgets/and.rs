@@ -360,7 +360,7 @@ mod tests {
 
     fn and<const WORD_BITS: u32>(
         v: Vec<(u64, u64, u64)>,
-    ) -> Vec<(AndCircuit<Fp, WORD_BITS>, Vec<Fp>)> {
+    ) -> Vec<(AndCircuit<Fp, WORD_BITS>, Vec<Vec<Fp>>)> {
         v.into_iter()
             .map(|i| {
                 (
@@ -368,7 +368,7 @@ mod tests {
                         a: Some(i.0.into()),
                         b: Some(i.1.into()),
                     },
-                    vec![i.2.into()],
+                    vec![vec![i.2.into()]],
                 )
             })
             .collect()

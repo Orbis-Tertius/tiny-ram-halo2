@@ -239,15 +239,20 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
         let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
-        let trace = self.trace.as_ref().ok_or(Error::Synthesis)?;
+        if let Some(trace) = &self.trace {
+            for step in trace.exe.iter() {
+                exe_chip
+                    .step(
+                        layouter.namespace(|| format!("{}", step.instruction)),
+                        step,
+                    )
+                    .unwrap();
+            }
 
-        for step in trace.exe.iter() {
-            exe_chip
-                .step(layouter.namespace(|| format!("{}", step.instruction)), step)
-                .unwrap();
+            Ok(())
+        } else {
+            Ok(())
         }
-
-        Ok(())
     }
 }
 
