@@ -1,26 +1,26 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Region},
-    plonk::{Advice, Column, ColumnType, ConstraintSystem, Fixed, Instance},
+    plonk::{Advice, Column, ConstraintSystem, Fixed, Instance},
 };
 
-pub trait NewColumn<C: ColumnType> {
-    fn new_column(&mut self) -> Column<C>;
+pub trait NewColumn<C> {
+    fn new_column(&mut self) -> C;
 }
 
-impl<F: FieldExt> NewColumn<Advice> for ConstraintSystem<F> {
+impl<F: FieldExt> NewColumn<Column<Advice>> for ConstraintSystem<F> {
     fn new_column(&mut self) -> Column<Advice> {
         self.advice_column()
     }
 }
 
-impl<F: FieldExt> NewColumn<Instance> for ConstraintSystem<F> {
+impl<F: FieldExt> NewColumn<Column<Instance>> for ConstraintSystem<F> {
     fn new_column(&mut self) -> Column<Instance> {
         self.instance_column()
     }
 }
 
-impl<F: FieldExt> NewColumn<Fixed> for ConstraintSystem<F> {
+impl<F: FieldExt> NewColumn<Column<Fixed>> for ConstraintSystem<F> {
     fn new_column(&mut self) -> Column<Fixed> {
         self.fixed_column()
     }

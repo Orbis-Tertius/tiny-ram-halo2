@@ -71,7 +71,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
     pub fn syn<F: FieldExt, C: NewColumn<F>>(
         &self,
         immediate: Column<C>,
-        s: TempVarSelectors<REG_COUNT, C>,
+        s: TempVarSelectors<REG_COUNT, Column<C>>,
         region: &mut Region<F>,
         inst: trace::Instruction,
     ) {

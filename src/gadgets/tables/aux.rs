@@ -9,16 +9,16 @@ use crate::{
     trace::{self, And, LoadW, RegName, Registers, StoreW},
 };
 
-#[derive(Debug, Clone, Copy)]
-pub struct ExeRow<const REG_COUNT: usize, C: ColumnType> {
-    pub pc: Column<C>,
-    pub immediate: Column<C>,
-    pub regs: [Column<C>; REG_COUNT],
+#[derive(Debug, Clone)]
+pub struct ExeRow<const REG_COUNT: usize, C: Copy> {
+    pub pc: C,
+    pub immediate: C,
+    pub regs: [C; REG_COUNT],
     // Page 34
-    pub v_addr: Column<C>,
+    pub v_addr: C,
 }
 
-impl<const REG_COUNT: usize, C: ColumnType> ExeRow<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> ExeRow<REG_COUNT, C> {
     pub fn new<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> ExeRow<REG_COUNT, C>
     where
         ConstraintSystem<F>: NewColumn<C>,
@@ -110,7 +110,7 @@ impl<T> Out<T> {
     }
 }
 
-impl<C: ColumnType> Out<C> {
+impl<C> Out<C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
@@ -150,17 +150,37 @@ impl<C: ColumnType> Out<C> {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct TempVarSelectors<const REG_COUNT: usize, C: ColumnType> {
-    pub a: SelectiorsA<REG_COUNT, Column<C>>,
-    pub b: SelectiorsB<REG_COUNT, Column<C>>,
-    pub c: SelectiorsC<REG_COUNT, Column<C>>,
-    pub d: SelectiorsD<REG_COUNT, Column<C>>,
-    pub out: Out<Column<C>>,
-    pub ch: UnChangedSelectors<REG_COUNT, Column<C>>,
+impl<T> Out<T> {
+    fn convert<B: From<T>>(self) -> Out<B> {
+        Out {
+            and: self.and.into(),
+            xor: self.xor.into(),
+            or: self.or.into(),
+            sum: self.sum.into(),
+            prog: self.prog.into(),
+            ssum: self.ssum.into(),
+            sprod: self.sprod.into(),
+            mod_: self.mod_.into(),
+            shift: self.shift.into(),
+            flag1: self.flag1.into(),
+            flag2: self.flag2.into(),
+            flag3: self.flag3.into(),
+            flag4: self.flag4.into(),
+        }
+    }
 }
 
-impl<const REG_COUNT: usize, C: ColumnType> TempVarSelectors<REG_COUNT, C> {
+#[derive(Debug, Clone)]
+pub struct TempVarSelectors<const REG_COUNT: usize, C: Copy> {
+    pub a: SelectiorsA<REG_COUNT, C>,
+    pub b: SelectiorsB<REG_COUNT, C>,
+    pub c: SelectiorsC<REG_COUNT, C>,
+    pub d: SelectiorsD<REG_COUNT, C>,
+    pub out: Out<C>,
+    pub ch: UnChangedSelectors<REG_COUNT, C>,
+}
+
+impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
     pub fn new<F: FieldExt>(
         meta: &mut ConstraintSystem<F>,
     ) -> TempVarSelectors<REG_COUNT, C>
@@ -177,7 +197,7 @@ impl<const REG_COUNT: usize, C: ColumnType> TempVarSelectors<REG_COUNT, C> {
         }
     }
 
-    fn push_cells<F: FieldExt, R: PushRow<F, Column<C>>>(
+    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
         vals: TempVarSelectorsRow<REG_COUNT>,
@@ -194,6 +214,7 @@ impl<const REG_COUNT: usize, C: ColumnType> TempVarSelectors<REG_COUNT, C> {
         b.push_cells(region, vals.b.into());
         c.push_cells(region, vals.c.into());
         d.push_cells(region, vals.d.into());
+        out.push_cells(region, vals.out.convert());
     }
 }
 
@@ -317,7 +338,7 @@ pub enum SelectionA {
 /// Use `SelectiorsA::new_*` to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsA<const REG_COUNT: usize, C> {
+pub struct SelectiorsA<const REG_COUNT: usize, C: Copy> {
     pub pc_next: C,
 
     pub reg: Registers<REG_COUNT, C>,
@@ -352,7 +373,7 @@ impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C: ColumnType> SelectiorsA<REG_COUNT, Column<C>> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
     fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
     where
         ConstraintSystem<F>: NewColumn<C>,
@@ -369,7 +390,7 @@ impl<const REG_COUNT: usize, C: ColumnType> SelectiorsA<REG_COUNT, Column<C>> {
     }
 }
 
-impl<const REG_COUNT: usize, C> SelectiorsA<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
@@ -420,7 +441,7 @@ pub enum SelectionB {
 /// Use `SelectiorsA::new_*` to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsB<const REG_COUNT: usize, C> {
+pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
     pub pc: C,
     pub pc_next: C,
 
@@ -435,7 +456,7 @@ pub struct SelectiorsB<const REG_COUNT: usize, C> {
     pub one: C,
 }
 
-impl<const REG_COUNT: usize, C: ColumnType> SelectiorsB<REG_COUNT, Column<C>> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
     fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
     where
         ConstraintSystem<F>: NewColumn<C>,
@@ -477,7 +498,7 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C> SelectiorsB<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
@@ -526,7 +547,7 @@ pub enum SelectionC {
 /// Use `SelectiorsA::new_*` to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsC<const REG_COUNT: usize, C> {
+pub struct SelectiorsC<const REG_COUNT: usize, C: Copy> {
     pub reg: Registers<REG_COUNT, C>,
     pub reg_next: Registers<REG_COUNT, C>,
 
@@ -538,7 +559,7 @@ pub struct SelectiorsC<const REG_COUNT: usize, C> {
     pub zero: C,
 }
 
-impl<const REG_COUNT: usize, C: ColumnType> SelectiorsC<REG_COUNT, Column<C>> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
     fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
     where
         ConstraintSystem<F>: NewColumn<C>,
@@ -574,7 +595,7 @@ impl<const REG_COUNT: usize> From<SelectionC> for SelectiorsC<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C> SelectiorsC<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
@@ -624,7 +645,7 @@ pub enum SelectionD {
 /// Use `SelectiorsD::new_*` and From<SelectionD> to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsD<const REG_COUNT: usize, C> {
+pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
     pub pc: C,
 
     pub reg: Registers<REG_COUNT, C>,
@@ -638,7 +659,7 @@ pub struct SelectiorsD<const REG_COUNT: usize, C> {
     pub zero: C,
 }
 
-impl<const REG_COUNT: usize, C: ColumnType> SelectiorsD<REG_COUNT, Column<C>> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
     fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
     where
         ConstraintSystem<F>: NewColumn<C>,
@@ -678,7 +699,7 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C> SelectiorsD<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,

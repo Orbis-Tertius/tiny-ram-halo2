@@ -24,7 +24,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 
 /// The both constant parameters `WORD_BITS`, `REG_COUNT` will always fit in a `u8`.
 /// `u32`, and `usize`, were picked for convenience.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // Not sure this is right.
     time: Column<Advice>,
@@ -48,7 +48,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-    temp_vars: TempVarSelectors<REG_COUNT, Advice>,
+    temp_vars: TempVarSelectors<REG_COUNT, Column<Advice>>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>

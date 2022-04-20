@@ -19,18 +19,16 @@ pub struct ProgChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
     _marker: PhantomData<F>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ProgConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
-    pc: Column<Fixed>,
-    /// It is unclear what the correct represention of a instruction is.
-    /// Exe_inst_t and Prog_inst_pc may even have diffrent representions.
-    instruction: Instructions<WORD_BITS, REG_COUNT>,
+    pc: Column<Instance>,
+    op_code: Column<Instance>,
     immediate: Column<Instance>,
 
     s: Column<Instance>,
     l: Column<Instance>,
 
-    temp_vars: TempVarSelectors<REG_COUNT, Instance>,
+    temp_vars: TempVarSelectors<REG_COUNT, Column<Instance>>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -61,10 +59,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     fn configure(
         meta: &mut ConstraintSystem<F>,
     ) -> ProgConfig<WORD_BITS, REG_COUNT> {
-        let pc = meta.fixed_column();
-        meta.enable_equality(pc);
+        let pc = meta.instance_column();
 
-        let instruction = Instructions::new_configured(meta);
+        let op_code = meta.instance_column();
         let immediate = meta.instance_column();
 
         let s = meta.instance_column();
@@ -73,7 +70,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let temp_vars = TempVarSelectors::new(meta);
         ProgConfig {
             pc,
-            instruction,
+            op_code,
             immediate,
             s,
             l,
@@ -82,38 +79,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 
     fn program(
-        &self,
-        mut layouter: impl Layouter<F>,
         program: &trace::Program,
-    ) -> Result<(), Error> {
-        let config = self.config;
+    ) -> Vec<Vec<F>> {
         for (pc, inst) in program.0.iter().enumerate() {
-            layouter
-                .assign_region(
-                    || format!("{}", inst),
-                    |mut region: Region<'_, F>| {
-                        region
-                            .assign_fixed(
-                                || format!("pc: {}", pc),
-                                config.pc,
-                                0,
-                                || Ok(F::from_u128(pc as u128)),
-                            )
-                            .unwrap();
-
-                        config.instruction.syn(
-                            config.immediate,
-                            config.temp_vars,
-                            &mut region,
-                            *inst,
-                        );
-
-                        Ok(())
-                    },
-                )
-                .unwrap();
         }
-        Ok(())
+        vec![]
     }
 }
 
@@ -156,9 +126,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
             .as_ref()
             .expect("A trace must be set before synthesis");
         for inst in prog.0.iter() {
-            prog_chip
-                .program(layouter.namespace(|| format!("{}", inst)), prog)
-                .unwrap();
+            // prog_chip
+            //     .program(layouter.namespace(|| format!("{}", inst)), prog)
+            //     .unwrap();
         }
 
         Ok(())
