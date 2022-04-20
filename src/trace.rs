@@ -217,7 +217,7 @@ impl Instruction {
 
     /// See TinyRAM 2.0 spec (page 16)
     /// The op code is the first field (`#1` in the table) of the binary instruction encoding.
-    pub fn op_code(&self) -> u128 {
+    pub fn opcode(&self) -> u128 {
         match self {
             Instruction::And(_) => 0b00000,
             Instruction::LoadW(_) => 0b11101,
@@ -227,19 +227,11 @@ impl Instruction {
     }
 
     pub fn is_store(&self) -> bool {
-        match self {
-            Instruction::StoreW(_) => true,
-            // Instruction::StoreB(_) => true,
-            _ => false,
-        }
+        matches!(self, Instruction::StoreW(_))
     }
 
     pub fn is_load(&self) -> bool {
-        match self {
-            Instruction::LoadW(_) => true,
-            // Instruction::LoadB(_) => true,
-            _ => false,
-        }
+        matches!(self, Instruction::LoadW(_))
     }
 }
 
@@ -390,10 +382,9 @@ impl Program {
                 instruction,
                 regs,
             });
-            dbg!(&regs);
             match instruction {
                 Instruction::And(And { ri, rj, a }) => {
-                    regs[ri] = dbg!(regs[rj] & a.get(&regs))
+                    regs[ri] = regs[rj] & a.get(&regs)
                 }
                 Instruction::LoadW(LoadW { ri, a }) => {
                     regs[ri] = mem.load(Address(a.get(&regs).0), time, pc);
@@ -401,7 +392,7 @@ impl Program {
                 Instruction::StoreW(StoreW { ri, a }) => {
                     mem.store(Address(a.get(&regs).0), time, pc, regs[ri])
                 }
-                Instruction::Answer(Answer { a }) => break dbg!(a.get(&regs)),
+                Instruction::Answer(Answer { a }) => break a.get(&regs),
             };
 
             time.0 += 1;

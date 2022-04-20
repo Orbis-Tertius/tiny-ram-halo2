@@ -8,13 +8,12 @@ use halo2_proofs::{
 
 use crate::{
     gadgets::and::AndChip,
-    trace::{Step, Trace},
+    trace::{RegName, Step, Trace},
 };
 
 use super::{
     aux::{Out, TempVarSelectors},
     even_bits::{EvenBitsChip, EvenBitsConfig},
-    instructions::Instructions,
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -26,11 +25,10 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone, Copy)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
-    // Not sure this is right.
     time: Column<Advice>,
     pc: Column<Advice>,
-    instruction: Instructions<WORD_BITS, REG_COUNT>,
-    // TODO make advice
+    /// `Exe_inst` in the paper.
+    opcode: Column<Advice>,
     immediate: Column<Advice>,
     reg: [Column<Advice>; REG_COUNT],
     flag: Column<Advice>,
@@ -82,7 +80,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let pc = meta.advice_column();
         meta.enable_equality(pc);
 
-        let instruction = Instructions::new_configured(meta);
+        let opcode = meta.advice_column();
 
         let immediate = meta.advice_column();
 
@@ -108,7 +106,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         ExeConfig {
             time,
             pc,
-            instruction,
+            opcode,
             immediate,
             reg,
             flag,
@@ -128,7 +126,22 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         mut layouter: impl Layouter<F>,
         step: &Step<REG_COUNT>,
     ) -> Result<(), Error> {
-        let config = self.config();
+        let ExeConfig {
+            time,
+            pc,
+            opcode,
+            immediate,
+            reg,
+            flag,
+            address,
+            value,
+            a,
+            b,
+            c,
+            d,
+            out,
+            temp_vars,
+        } = self.config;
 
         layouter
             .assign_region(
@@ -137,7 +150,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     region
                         .assign_advice(
                             || format!("time: {}", step.time.0),
-                            config.time,
+                            time,
                             0,
                             || Ok(F::from_u128(step.time.0 as u128)),
                         )
@@ -146,18 +159,43 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     region
                         .assign_advice(
                             || format!("pc: {}", step.pc.0),
-                            config.pc,
+                            pc,
                             0,
                             || Ok(F::from_u128(step.pc.0 as u128)),
                         )
                         .unwrap();
 
-                    config.instruction.syn(
-                        config.immediate,
-                        config.temp_vars,
-                        &mut region,
-                        step.instruction,
-                    );
+                    region
+                        .assign_advice(
+                            || format!("opcode: {}", step.instruction.opcode()),
+                            opcode,
+                            0,
+                            || Ok(F::from_u128(step.instruction.opcode())),
+                        )
+                        .unwrap();
+
+                    let immediate_v =
+                        step.instruction.a().immediate().unwrap_or_default().into();
+                    region
+                        .assign_advice(
+                            || format!("immediate: {}", immediate_v),
+                            immediate,
+                            0,
+                            || Ok(F::from_u128(immediate_v)),
+                        )
+                        .unwrap();
+
+                    // assign registers
+                    for ((i, reg), v) in reg.iter().enumerate().zip(step.regs.0) {
+                        region
+                            .assign_advice(
+                                || format!("r{}: {}", i, v.0),
+                                *reg,
+                                0,
+                                || Ok(F::from_u128(v.into())),
+                            )
+                            .unwrap();
+                    }
 
                     Ok(())
                 },

@@ -28,7 +28,7 @@ pub struct ProgConfig<
     C: Copy = Column<Instance>,
 > {
     pc: C,
-    op_code: C,
+    opcode: C,
     immediate: C,
 
     s: C,
@@ -68,7 +68,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     {
         let pc = meta.new_column();
 
-        let op_code = meta.new_column();
+        let opcode = meta.new_column();
         let immediate = meta.new_column();
 
         let s = meta.new_column();
@@ -77,7 +77,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let temp_vars = TempVarSelectors::new::<F, M>(meta);
         ProgConfig {
             pc,
-            op_code,
+            opcode,
             immediate,
             s,
             l,
@@ -85,11 +85,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         }
     }
 
-    fn program(program: &trace::Program) -> Vec<Vec<F>> {
+    pub fn program(program: &trace::Program) -> Vec<Vec<F>> {
         let mut meta = PseudoMeta::<F>::default();
         let ProgConfig {
             pc,
-            op_code,
+            opcode,
             immediate,
             s,
             l,
@@ -98,8 +98,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         for (pc_v, inst) in program.0.iter().enumerate() {
             meta.push_cell(pc, F::from_u128(pc_v as u128)).unwrap();
-            meta.push_cell(op_code, F::from_u128(inst.op_code()))
-                .unwrap();
+            meta.push_cell(opcode, F::from_u128(inst.opcode())).unwrap();
             meta.push_cell(
                 immediate,
                 F::from_u128(inst.a().immediate().unwrap_or_default().into()),
@@ -109,7 +108,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             meta.push_cell(l, inst.is_load().into()).unwrap();
             temp_vars.push_cells(&mut meta, TempVarSelectorsRow::from(inst))
         }
-        vec![]
+        meta.0
     }
 }
 
@@ -155,19 +154,18 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let even_bits_chip = EvenBitsChip::<F, WORD_BITS>::construct(config.1);
-        even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
-        let prog_chip = ProgChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
+        // let even_bits_chip = EvenBitsChip::<F, WORD_BITS>::construct(config.1);
+        // even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
+        // let prog_chip = ProgChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
-        let prog = self
-            .prog
-            .as_ref()
-            .expect("A trace must be set before synthesis");
-        for inst in prog.0.iter() {
-            // prog_chip
-            //     .program(layouter.namespace(|| format!("{}", inst)), prog)
-            //     .unwrap();
-        }
+        // let prog = self
+        //     .prog
+        //     .as_ref()
+        //     .expect("A trace must be set before synthesis");
+        // TODO verify store load
+        // TODO constrain selectors
+        // TODO constrain words
+        // TODO constrain last address to answer zero
 
         Ok(())
     }
@@ -178,7 +176,10 @@ mod tests {
     use halo2_proofs::dev::MockProver;
     use pasta_curves::Fp;
 
-    use crate::{gadgets::tables::prog::ProgCircuit, trace::*};
+    use crate::{
+        gadgets::tables::prog::{ProgChip, ProgCircuit, ProgConfig},
+        trace::*,
+    };
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
     ) -> Trace<WORD_BITS, REG_COUNT> {
@@ -214,7 +215,7 @@ mod tests {
         let circuit = ProgCircuit::<WORD_BITS, REG_COUNT> { prog };
         use plotters::prelude::*;
         let root =
-            BitMapBackend::new("layout.png", (15360, 7680)).into_drawing_area();
+            BitMapBackend::new("layout.png", (1080, 1920)).into_drawing_area();
         root.fill(&WHITE).unwrap();
         let root = root
             .titled("Prog Circuit Layout", ("sans-serif", 60))
@@ -236,12 +237,15 @@ mod tests {
         trace: Trace<WORD_BITS, REG_COUNT>,
     ) {
         let k = 1 + WORD_BITS / 2;
+
+        let public = ProgChip::<Fp, WORD_BITS, REG_COUNT>::program(&trace.prog);
+        eprintln!("{:?}", public);
+
         let circuit = ProgCircuit::<WORD_BITS, REG_COUNT> {
             prog: Some(trace.prog),
         };
-
         // Given the correct public input, our circuit will verify.
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<Fp>::run(k, &circuit, public).unwrap();
         assert_eq!(prover.verify(), Ok(()));
     }
 
