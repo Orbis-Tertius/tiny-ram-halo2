@@ -2,33 +2,39 @@ use std::marker::PhantomData;
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Circuit, Column, ConstraintSystem, Error, Fixed, Instance},
+    circuit::{Chip, Layouter, SimpleFloorPlanner},
+    plonk::{Circuit, Column, ConstraintSystem, Error, Instance},
 };
 
-use crate::trace;
+use crate::{
+    assign::{NewColumn, PseudoMeta, PushRow},
+    trace,
+};
 
 use super::{
-    aux::TempVarSelectors,
+    aux::{TempVarSelectors, TempVarSelectorsRow},
     even_bits::{EvenBitsChip, EvenBitsConfig},
-    instructions::Instructions,
 };
 
 pub struct ProgChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
-    config: ProgConfig<WORD_BITS, REG_COUNT>,
+    config: ProgConfig<WORD_BITS, REG_COUNT, Column<Instance>>,
     _marker: PhantomData<F>,
 }
 
 #[derive(Debug, Clone)]
-pub struct ProgConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
-    pc: Column<Instance>,
-    op_code: Column<Instance>,
-    immediate: Column<Instance>,
+pub struct ProgConfig<
+    const WORD_BITS: u32,
+    const REG_COUNT: usize,
+    C: Copy = Column<Instance>,
+> {
+    pc: C,
+    op_code: C,
+    immediate: C,
 
-    s: Column<Instance>,
-    l: Column<Instance>,
+    s: C,
+    l: C,
 
-    temp_vars: TempVarSelectors<REG_COUNT, Column<Instance>>,
+    temp_vars: TempVarSelectors<REG_COUNT, C>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -56,18 +62,19 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         }
     }
 
-    fn configure(
-        meta: &mut ConstraintSystem<F>,
-    ) -> ProgConfig<WORD_BITS, REG_COUNT> {
-        let pc = meta.instance_column();
+    fn configure<C: Copy, M>(meta: &mut M) -> ProgConfig<WORD_BITS, REG_COUNT, C>
+    where
+        M: NewColumn<C>,
+    {
+        let pc = meta.new_column();
 
-        let op_code = meta.instance_column();
-        let immediate = meta.instance_column();
+        let op_code = meta.new_column();
+        let immediate = meta.new_column();
 
-        let s = meta.instance_column();
-        let l = meta.instance_column();
+        let s = meta.new_column();
+        let l = meta.new_column();
 
-        let temp_vars = TempVarSelectors::new(meta);
+        let temp_vars = TempVarSelectors::new::<F, M>(meta);
         ProgConfig {
             pc,
             op_code,
@@ -78,13 +85,39 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         }
     }
 
-    fn program(
-        program: &trace::Program,
-    ) -> Vec<Vec<F>> {
-        for (pc, inst) in program.0.iter().enumerate() {
+    fn program(program: &trace::Program) -> Vec<Vec<F>> {
+        let mut meta = PseudoMeta::<F>::default();
+        let ProgConfig {
+            pc,
+            op_code,
+            immediate,
+            s,
+            l,
+            temp_vars,
+        } = Self::configure(&mut meta);
+
+        for (pc_v, inst) in program.0.iter().enumerate() {
+            meta.push_cell(pc, F::from_u128(pc_v as u128)).unwrap();
+            meta.push_cell(op_code, F::from_u128(inst.op_code()))
+                .unwrap();
+            meta.push_cell(
+                immediate,
+                F::from_u128(inst.a().immediate().unwrap_or_default().into()),
+            )
+            .unwrap();
+            meta.push_cell(s, inst.is_store().into()).unwrap();
+            meta.push_cell(l, inst.is_load().into()).unwrap();
+            temp_vars.push_cells(&mut meta, TempVarSelectorsRow::from(inst))
         }
         vec![]
     }
+}
+
+#[test]
+fn fp_from_bool() {
+    // We rely on this property
+    assert_eq!(pasta_curves::Fp::zero(), false.into());
+    assert_eq!(pasta_curves::Fp::one(), true.into());
 }
 
 #[derive(Default)]
@@ -95,7 +128,10 @@ pub struct ProgCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     for ProgCircuit<WORD_BITS, REG_COUNT>
 {
-    type Config = (ProgConfig<WORD_BITS, REG_COUNT>, EvenBitsConfig);
+    type Config = (
+        ProgConfig<WORD_BITS, REG_COUNT, Column<Instance>>,
+        EvenBitsConfig,
+    );
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -107,7 +143,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         let advice = [meta.advice_column(), meta.advice_column()];
 
         (
-            ProgChip::<F, WORD_BITS, REG_COUNT>::configure(meta),
+            ProgChip::<F, WORD_BITS, REG_COUNT>::configure::<Column<Instance>, _>(
+                meta,
+            ),
             EvenBitsChip::<F, WORD_BITS>::configure(meta, advice),
         )
     }

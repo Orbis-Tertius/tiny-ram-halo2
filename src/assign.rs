@@ -49,14 +49,27 @@ impl<'r, F: FieldExt>
     }
 }
 
-impl<'r, F> PushRow<F, Instance> for Vec<F> {
-    type AssignedRef = usize;
+impl<'r, F> PushRow<F, PseudoColumn> for PseudoMeta<F> {
+    type AssignedRef = (PseudoColumn, usize);
     fn push_cell(
         &mut self,
-        _column: Instance,
+        column: PseudoColumn,
         f: F,
     ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
-        self.push(f);
-        Ok(self.len() - 1)
+        self.0[column.0].push(f);
+        Ok((column, self.0[column.0].len() - 1))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PseudoMeta<F>(pub Vec<Vec<F>>);
+
+#[derive(Debug, Clone, Copy)]
+pub struct PseudoColumn(pub usize);
+
+impl<F> NewColumn<PseudoColumn> for PseudoMeta<F> {
+    fn new_column(&mut self) -> PseudoColumn {
+        self.0.push(Vec::new());
+        PseudoColumn(self.0.len() - 1)
     }
 }

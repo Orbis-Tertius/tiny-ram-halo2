@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error},
 };
 
 use crate::{
@@ -24,7 +24,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 
 /// The both constant parameters `WORD_BITS`, `REG_COUNT` will always fit in a `u8`.
 /// `u32`, and `usize`, were picked for convenience.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // Not sure this is right.
     time: Column<Advice>,
@@ -119,7 +119,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             c,
             d,
             out: Out::new(|| meta.advice_column()),
-            temp_vars: TempVarSelectors::new(meta),
+            temp_vars: TempVarSelectors::new::<F, ConstraintSystem<F>>(meta),
         }
     }
 

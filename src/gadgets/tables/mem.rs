@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region},
-    plonk::{Advice, Column, ConstraintSystem, Instance, Selector},
+    plonk::{Advice, Column, ConstraintSystem, Selector},
 };
 
 use crate::trace::{Access, Mem};

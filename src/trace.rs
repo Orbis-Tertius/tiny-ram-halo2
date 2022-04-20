@@ -7,6 +7,12 @@ use std::{
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Word(pub usize);
 
+impl From<Word> for u128 {
+    fn from(w: Word) -> Self {
+        w.0 as u128
+    }
+}
+
 impl BitAnd for Word {
     type Output = Word;
 
@@ -208,6 +214,33 @@ impl Instruction {
             | Instruction::Answer(Answer { a }) => *a,
         }
     }
+
+    /// See TinyRAM 2.0 spec (page 16)
+    /// The op code is the first field (`#1` in the table) of the binary instruction encoding.
+    pub fn op_code(&self) -> u128 {
+        match self {
+            Instruction::And(_) => 0b00000,
+            Instruction::LoadW(_) => 0b11101,
+            Instruction::StoreW(_) => 0b11100,
+            Instruction::Answer(_) => 0b11111,
+        }
+    }
+
+    pub fn is_store(&self) -> bool {
+        match self {
+            Instruction::StoreW(_) => true,
+            // Instruction::StoreB(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_load(&self) -> bool {
+        match self {
+            Instruction::LoadW(_) => true,
+            // Instruction::LoadB(_) => true,
+            _ => false,
+        }
+    }
 }
 
 impl Display for Instruction {
@@ -233,6 +266,15 @@ impl Display for Instruction {
 pub enum ImmediateOrRegName {
     Immediate(Word),
     RegName(RegName),
+}
+
+impl ImmediateOrRegName {
+    pub fn immediate(self) -> Option<Word> {
+        match self {
+            ImmediateOrRegName::Immediate(w) => Some(w),
+            ImmediateOrRegName::RegName(_) => None,
+        }
+    }
 }
 
 impl Display for ImmediateOrRegName {
@@ -266,7 +308,7 @@ impl<const REG_COUNT: usize, T> From<[T; REG_COUNT]> for Registers<REG_COUNT, T>
 }
 
 impl<const REG_COUNT: usize, A> Registers<REG_COUNT, A> {
-    pub fn convert_elems<B: From<A>>(self) -> Registers<REG_COUNT, B> {
+    pub fn convert<B: From<A>>(self) -> Registers<REG_COUNT, B> {
         Registers(self.0.map(B::from))
     }
 }
@@ -346,7 +388,7 @@ impl Program {
                 time,
                 pc,
                 instruction,
-                regs: regs.clone(),
+                regs,
             });
             dbg!(&regs);
             match instruction {

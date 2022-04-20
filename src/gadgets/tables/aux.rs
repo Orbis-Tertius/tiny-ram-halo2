@@ -1,8 +1,4 @@
-use halo2_proofs::{
-    arithmetic::FieldExt,
-    circuit::{AssignedCell, Region},
-    plonk::{self, Advice, Column, ColumnType, ConstraintSystem, Selector},
-};
+use halo2_proofs::{arithmetic::FieldExt, plonk};
 
 use crate::{
     assign::{NewColumn, PushRow},
@@ -19,9 +15,9 @@ pub struct ExeRow<const REG_COUNT: usize, C: Copy> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> ExeRow<REG_COUNT, C> {
-    pub fn new<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> ExeRow<REG_COUNT, C>
+    pub fn new<F: FieldExt, M>(meta: &mut M) -> ExeRow<REG_COUNT, C>
     where
-        ConstraintSystem<F>: NewColumn<C>,
+        M: NewColumn<C>,
     {
         ExeRow {
             pc: NewColumn::new_column(meta),
@@ -64,6 +60,14 @@ impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
         region.push_cell(flag, vals.flag.into())?;
 
         Ok(())
+    }
+
+    fn convert<B: From<T>>(self) -> UnChangedSelectors<REG_COUNT, B> {
+        UnChangedSelectors {
+            regs: self.regs.convert(),
+            pc: self.pc.into(),
+            flag: self.flag.into(),
+        }
     }
 }
 
@@ -170,7 +174,7 @@ impl<T> Out<T> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct TempVarSelectors<const REG_COUNT: usize, C: Copy> {
     pub a: SelectiorsA<REG_COUNT, C>,
     pub b: SelectiorsB<REG_COUNT, C>,
@@ -181,23 +185,21 @@ pub struct TempVarSelectors<const REG_COUNT: usize, C: Copy> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
-    pub fn new<F: FieldExt>(
-        meta: &mut ConstraintSystem<F>,
-    ) -> TempVarSelectors<REG_COUNT, C>
+    pub fn new<F: FieldExt, M>(meta: &mut M) -> TempVarSelectors<REG_COUNT, C>
     where
-        ConstraintSystem<F>: NewColumn<C>,
+        M: NewColumn<C>,
     {
         TempVarSelectors {
-            a: SelectiorsA::new_columns(meta),
-            b: SelectiorsB::new_columns(meta),
-            c: SelectiorsC::new_columns(meta),
-            d: SelectiorsD::new_columns(meta),
+            a: SelectiorsA::new_columns::<F, M>(meta),
+            b: SelectiorsB::new_columns::<F, M>(meta),
+            c: SelectiorsC::new_columns::<F, M>(meta),
+            d: SelectiorsD::new_columns::<F, M>(meta),
             out: Out::new(|| meta.new_column()),
             ch: UnChangedSelectors::new(|| meta.new_column()),
         }
     }
 
-    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    pub fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
         vals: TempVarSelectorsRow<REG_COUNT>,
@@ -214,7 +216,8 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
         b.push_cells(region, vals.b.into());
         c.push_cells(region, vals.c.into());
         d.push_cells(region, vals.d.into());
-        out.push_cells(region, vals.out.convert());
+        out.push_cells(region, vals.out.convert()).unwrap();
+        ch.push_cells(region, vals.ch.convert()).unwrap();
     }
 }
 
@@ -228,10 +231,10 @@ pub struct TempVarSelectorsRow<const REG_COUNT: usize> {
     pub ch: UnChangedSelectors<REG_COUNT, bool>,
 }
 
-impl<const REG_COUNT: usize> From<trace::Instruction>
+impl<const REG_COUNT: usize> From<&trace::Instruction>
     for TempVarSelectorsRow<REG_COUNT>
 {
-    fn from(inst: trace::Instruction) -> Self {
+    fn from(inst: &trace::Instruction) -> Self {
         let out = Out {
             and: false,
             xor: false,
@@ -253,7 +256,7 @@ impl<const REG_COUNT: usize> From<trace::Instruction>
             flag: true,
         };
 
-        match inst {
+        match *inst {
             // Reference Page 27, Fig. 3
             trace::Instruction::And(And { ri, rj, .. }) => Self {
                 a: SelectionA::A,
@@ -374,9 +377,9 @@ impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
-    fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
+    fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
-        ConstraintSystem<F>: NewColumn<C>,
+        M: NewColumn<C>,
     {
         SelectiorsA {
             pc_next: meta.new_column(),
@@ -457,9 +460,9 @@ pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
-    fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
+    fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
-        ConstraintSystem<F>: NewColumn<C>,
+        M: NewColumn<C>,
     {
         SelectiorsB {
             pc: meta.new_column(),
@@ -514,6 +517,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             one,
         } = self;
 
+        region.push_cell(pc, vals.pc.into()).unwrap();
         region.push_cell(pc_next, vals.pc_next.into()).unwrap();
 
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
@@ -560,9 +564,9 @@ pub struct SelectiorsC<const REG_COUNT: usize, C: Copy> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
-    fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
+    fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
-        ConstraintSystem<F>: NewColumn<C>,
+        M: NewColumn<C>,
     {
         SelectiorsC {
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
@@ -660,9 +664,9 @@ pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
-    fn new_columns<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self
+    fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
-        ConstraintSystem<F>: NewColumn<C>,
+        M: NewColumn<C>,
     {
         SelectiorsD {
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.

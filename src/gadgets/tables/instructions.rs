@@ -8,25 +8,10 @@ use halo2_proofs::{
 };
 
 use crate::{
+    assign::NewColumn,
     gadgets::and::{AndChip, AndConfig},
-    trace::{self, And, Answer, ImmediateOrRegName, LoadW, StoreW},
+    trace,
 };
-
-pub trait NewColumn<F: FieldExt>: ColumnType {
-    fn new_column(meta: &mut ConstraintSystem<F>) -> Column<Self>;
-}
-
-impl<F: FieldExt> NewColumn<F> for Advice {
-    fn new_column(meta: &mut ConstraintSystem<F>) -> Column<Advice> {
-        meta.advice_column()
-    }
-}
-
-impl<F: FieldExt> NewColumn<F> for Instance {
-    fn new_column(meta: &mut ConstraintSystem<F>) -> Column<Instance> {
-        meta.instance_column()
-    }
-}
 
 use super::aux::TempVarSelectors;
 
@@ -68,7 +53,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize>
     /// TODO recompute instruction here, as an extra check.
     /// TODO set immediate selector in this match.
     /// TODO multiplex registers into temp vars, and set temp var selectors
-    pub fn syn<F: FieldExt, C: NewColumn<F>>(
+    pub fn syn<F: FieldExt, C: Copy + ColumnType>(
         &self,
         immediate: Column<C>,
         s: TempVarSelectors<REG_COUNT, Column<C>>,
