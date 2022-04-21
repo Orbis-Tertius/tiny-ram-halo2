@@ -7,6 +7,12 @@ use std::{
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Word(pub usize);
 
+impl From<Word> for u128 {
+    fn from(w: Word) -> Self {
+        w.0 as u128
+    }
+}
+
 impl BitAnd for Word {
     type Output = Word;
 
@@ -159,7 +165,7 @@ pub struct Step<const REG_COUNT: usize> {
     pub time: Time,
     pub pc: ProgCount,
     pub instruction: Instruction,
-    pub regs: Registers<REG_COUNT>,
+    pub regs: Registers<REG_COUNT, Word>,
 }
 
 /// Docs for a variant are on each variant's struct,
@@ -208,6 +214,25 @@ impl Instruction {
             | Instruction::Answer(Answer { a }) => *a,
         }
     }
+
+    /// See TinyRAM 2.0 spec (page 16)
+    /// The op code is the first field (`#1` in the table) of the binary instruction encoding.
+    pub fn opcode(&self) -> u128 {
+        match self {
+            Instruction::And(_) => 0b00000,
+            Instruction::LoadW(_) => 0b11101,
+            Instruction::StoreW(_) => 0b11100,
+            Instruction::Answer(_) => 0b11111,
+        }
+    }
+
+    pub fn is_store(&self) -> bool {
+        matches!(self, Instruction::StoreW(_))
+    }
+
+    pub fn is_load(&self) -> bool {
+        matches!(self, Instruction::LoadW(_))
+    }
 }
 
 impl Display for Instruction {
@@ -235,6 +260,15 @@ pub enum ImmediateOrRegName {
     RegName(RegName),
 }
 
+impl ImmediateOrRegName {
+    pub fn immediate(self) -> Option<Word> {
+        match self {
+            ImmediateOrRegName::Immediate(w) => Some(w),
+            ImmediateOrRegName::RegName(_) => None,
+        }
+    }
+}
+
 impl Display for ImmediateOrRegName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -245,7 +279,10 @@ impl Display for ImmediateOrRegName {
 }
 
 impl ImmediateOrRegName {
-    fn get<const REG_COUNT: usize>(&self, regs: &Registers<REG_COUNT>) -> Word {
+    fn get<const REG_COUNT: usize>(
+        &self,
+        regs: &Registers<REG_COUNT, Word>,
+    ) -> Word {
         match self {
             ImmediateOrRegName::Immediate(w) => *w,
             ImmediateOrRegName::RegName(r) => regs[*r],
@@ -253,24 +290,43 @@ impl ImmediateOrRegName {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Registers<const REG_COUNT: usize>([Word; REG_COUNT]);
+#[derive(Debug, Clone, Copy)]
+pub struct Registers<const REG_COUNT: usize, T>(pub [T; REG_COUNT]);
 
-impl<const REG_COUNT: usize> Default for Registers<REG_COUNT> {
+impl<const REG_COUNT: usize, T> From<[T; REG_COUNT]> for Registers<REG_COUNT, T> {
+    fn from(arr: [T; REG_COUNT]) -> Self {
+        Registers(arr)
+    }
+}
+
+impl<const REG_COUNT: usize, A> Registers<REG_COUNT, A> {
+    pub fn convert<B: From<A>>(self) -> Registers<REG_COUNT, B> {
+        Registers(self.0.map(B::from))
+    }
+}
+
+impl<const REG_COUNT: usize, T: Copy> Registers<REG_COUNT, T> {
+    pub fn set(mut self, i: RegName, v: T) -> Self {
+        self[i] = v;
+        self
+    }
+}
+
+impl<const REG_COUNT: usize> Default for Registers<REG_COUNT, Word> {
     fn default() -> Self {
         Registers([Word::default(); REG_COUNT])
     }
 }
 
-impl<const REG_COUNT: usize> Index<RegName> for Registers<REG_COUNT> {
-    type Output = Word;
+impl<const REG_COUNT: usize, T> Index<RegName> for Registers<REG_COUNT, T> {
+    type Output = T;
 
     fn index(&self, index: RegName) -> &Self::Output {
         &self.0[index.0]
     }
 }
 
-impl<const REG_COUNT: usize> IndexMut<RegName> for Registers<REG_COUNT> {
+impl<const REG_COUNT: usize, T> IndexMut<RegName> for Registers<REG_COUNT, T> {
     fn index_mut(&mut self, index: RegName) -> &mut Self::Output {
         &mut self.0[index.0]
     }
@@ -313,7 +369,7 @@ impl Program {
         mut mem: Mem<WORD_BITS>,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         let prog = self;
-        let mut regs = Registers::<REG_COUNT>::default();
+        let mut regs = Registers::<REG_COUNT, Word>::default();
         let mut pc = ProgCount(0);
         let mut time = Time(0);
         let mut exe = Vec::with_capacity(100);
@@ -324,12 +380,11 @@ impl Program {
                 time,
                 pc,
                 instruction,
-                regs: regs.clone(),
+                regs,
             });
-            dbg!(&regs);
             match instruction {
                 Instruction::And(And { ri, rj, a }) => {
-                    regs[ri] = dbg!(regs[rj] & a.get(&regs))
+                    regs[ri] = regs[rj] & a.get(&regs)
                 }
                 Instruction::LoadW(LoadW { ri, a }) => {
                     regs[ri] = mem.load(Address(a.get(&regs).0), time, pc);
@@ -337,7 +392,7 @@ impl Program {
                 Instruction::StoreW(StoreW { ri, a }) => {
                     mem.store(Address(a.get(&regs).0), time, pc, regs[ri])
                 }
-                Instruction::Answer(Answer { a }) => break dbg!(a.get(&regs)),
+                Instruction::Answer(Answer { a }) => break a.get(&regs),
             };
 
             time.0 += 1;

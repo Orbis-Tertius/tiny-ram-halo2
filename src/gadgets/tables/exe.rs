@@ -3,18 +3,17 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error},
 };
 
 use crate::{
     gadgets::and::AndChip,
-    trace::{Step, Trace},
+    trace::{RegName, Step, Trace},
 };
 
 use super::{
     aux::{Out, TempVarSelectors},
     even_bits::{EvenBitsChip, EvenBitsConfig},
-    instructions::Instructions,
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -26,12 +25,11 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone, Copy)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
-    // Not sure this is right.
-    time: Column<Fixed>,
+    time: Column<Advice>,
     pc: Column<Advice>,
-    instruction: Instructions<WORD_BITS, REG_COUNT>,
-    // TODO make advice
-    immediate: Column<Fixed>,
+    /// `Exe_inst` in the paper.
+    opcode: Column<Advice>,
+    immediate: Column<Advice>,
     reg: [Column<Advice>; REG_COUNT],
     flag: Column<Advice>,
     address: Column<Advice>,
@@ -48,7 +46,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-    temp_vars: TempVarSelectors<REG_COUNT>,
+    temp_vars: TempVarSelectors<REG_COUNT, Column<Advice>>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -77,15 +75,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
-        let time = meta.fixed_column();
-        meta.enable_constant(time);
+        let time = meta.advice_column();
 
         let pc = meta.advice_column();
         meta.enable_equality(pc);
 
-        let instruction = Instructions::new_configured(meta);
+        let opcode = meta.advice_column();
 
-        let immediate = meta.fixed_column();
+        let immediate = meta.advice_column();
 
         // We cannot write `[meta.advice_column(); REG_COUNT]`,
         // That would produce an array of the same advice copied REG_COUNT times.
@@ -109,7 +106,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         ExeConfig {
             time,
             pc,
-            instruction,
+            opcode,
             immediate,
             reg,
             flag,
@@ -120,7 +117,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             c,
             d,
             out: Out::new(|| meta.advice_column()),
-            temp_vars: TempVarSelectors::new(meta),
+            temp_vars: TempVarSelectors::new::<F, ConstraintSystem<F>>(meta),
         }
     }
 
@@ -129,16 +126,31 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         mut layouter: impl Layouter<F>,
         step: &Step<REG_COUNT>,
     ) -> Result<(), Error> {
-        let config = self.config();
+        let ExeConfig {
+            time,
+            pc,
+            opcode,
+            immediate,
+            reg,
+            flag,
+            address,
+            value,
+            a,
+            b,
+            c,
+            d,
+            out,
+            temp_vars,
+        } = self.config;
 
         layouter
             .assign_region(
                 || format!("{}", step.instruction),
                 |mut region: Region<'_, F>| {
                     region
-                        .assign_fixed(
+                        .assign_advice(
                             || format!("time: {}", step.time.0),
-                            config.time,
+                            time,
                             0,
                             || Ok(F::from_u128(step.time.0 as u128)),
                         )
@@ -147,18 +159,43 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     region
                         .assign_advice(
                             || format!("pc: {}", step.pc.0),
-                            config.pc,
+                            pc,
                             0,
                             || Ok(F::from_u128(step.pc.0 as u128)),
                         )
                         .unwrap();
 
-                    config.instruction.syn(
-                        config.immediate,
-                        config.temp_vars,
-                        &mut region,
-                        step.instruction,
-                    );
+                    region
+                        .assign_advice(
+                            || format!("opcode: {}", step.instruction.opcode()),
+                            opcode,
+                            0,
+                            || Ok(F::from_u128(step.instruction.opcode())),
+                        )
+                        .unwrap();
+
+                    let immediate_v =
+                        step.instruction.a().immediate().unwrap_or_default().into();
+                    region
+                        .assign_advice(
+                            || format!("immediate: {}", immediate_v),
+                            immediate,
+                            0,
+                            || Ok(F::from_u128(immediate_v)),
+                        )
+                        .unwrap();
+
+                    // assign registers
+                    for ((i, reg), v) in reg.iter().enumerate().zip(step.regs.0) {
+                        region
+                            .assign_advice(
+                                || format!("r{}: {}", i, v.0),
+                                *reg,
+                                0,
+                                || Ok(F::from_u128(v.into())),
+                            )
+                            .unwrap();
+                    }
 
                     Ok(())
                 },
@@ -168,7 +205,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Debug, Clone)]
 pub struct ExeCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
     pub trace: Option<Trace<WORD_BITS, REG_COUNT>>,
 }
@@ -202,17 +239,20 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
         let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
-        let trace = self
-            .trace
-            .as_ref()
-            .expect("A trace must be set before synthesis");
-        for step in trace.exe.iter() {
-            exe_chip
-                .step(layouter.namespace(|| format!("{}", step.instruction)), step)
-                .unwrap();
-        }
+        if let Some(trace) = &self.trace {
+            for step in trace.exe.iter() {
+                exe_chip
+                    .step(
+                        layouter.namespace(|| format!("{}", step.instruction)),
+                        step,
+                    )
+                    .unwrap();
+            }
 
-        Ok(())
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -221,7 +261,10 @@ mod tests {
     use halo2_proofs::dev::MockProver;
     use pasta_curves::Fp;
 
-    use crate::{gadgets::tables::exe::ExeCircuit, trace::*};
+    use crate::{
+        gadgets::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
+        trace::*,
+    };
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
     ) -> Trace<WORD_BITS, REG_COUNT> {
@@ -301,5 +344,30 @@ mod tests {
         assert_eq!(trace.ans.0, 1);
 
         mock_prover_test::<8, 8>(trace)
+    }
+
+    #[test]
+    fn two_programs() {
+        let ans = {
+            let ans = Program(vec![Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            })]);
+            let ans = ans.eval::<8, 8>(Mem::new(&[], &[]));
+            assert_eq!(ans.ans.0, 1);
+            ans
+        };
+
+        let l_and_ans = load_and_answer::<8, 8>();
+        assert_eq!(l_and_ans.ans.0, 1);
+
+        gen_proofs_and_verify::<8, _>(vec![
+            (ExeCircuit { trace: Some(ans) }, vec![]),
+            (
+                ExeCircuit {
+                    trace: Some(l_and_ans),
+                },
+                vec![],
+            ),
+        ]);
     }
 }

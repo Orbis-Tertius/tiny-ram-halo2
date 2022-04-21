@@ -4,6 +4,7 @@ proof
 verifying_key
 result-bin
 result
+rusty-tags.vi
 
 # generated from tests
 circuit.dot

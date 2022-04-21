@@ -1,3 +1,4 @@
+pub mod assign;
 pub mod gadgets;
 #[cfg(test)]
 pub mod test_utils;

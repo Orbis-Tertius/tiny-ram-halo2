@@ -5,7 +5,7 @@ pub fn gen_proofs_and_verify<
     const WORD_BITS: u32,
     C: Circuit<Fp> + Default + Clone,
 >(
-    inputs: Vec<(C, Vec<Fp>)>,
+    inputs: Vec<(C, Vec<Vec<Fp>>)>,
 ) {
     use halo2_proofs::{
         plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
@@ -22,7 +22,17 @@ pub fn gen_proofs_and_verify<
 
     let pk = keygen_pk(&params, vk, &empty_circuit).unwrap();
 
-    let proofs: Vec<(Vec<u8>, &[Fp])> = inputs
+    let inputs: Vec<(C, Vec<&[Fp]>)> = inputs
+        .iter()
+        .map(|(circuit, public_input)| {
+            (
+                circuit.clone(),
+                public_input.iter().map(|v| v.as_slice()).collect(),
+            )
+        })
+        .collect();
+
+    let proofs: Vec<(Vec<u8>, &[&[Fp]])> = inputs
         .iter()
         .map(|(circuit, c)| {
             let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
@@ -30,7 +40,7 @@ pub fn gen_proofs_and_verify<
                 &params,
                 &pk,
                 &[circuit.clone()],
-                &[&[c]],
+                &[c.as_slice()],
                 &mut OsRng,
                 &mut transcript,
             )
@@ -46,7 +56,7 @@ pub fn gen_proofs_and_verify<
         let mut transcript = Blake2bRead::init(&proof[..]);
 
         verifier =
-            verify_proof(&params, pk.get_vk(), verifier, &[&[c]], &mut transcript)
+            verify_proof(&params, pk.get_vk(), verifier, &[c], &mut transcript)
                 .expect("could not verify_proof");
     }
 
@@ -56,7 +66,7 @@ pub fn gen_proofs_and_verify<
             let verifier = SingleVerifier::new(&params);
             let mut transcript = Blake2bRead::init(&proof[..]);
 
-            verify_proof(&params, pk.get_vk(), verifier, &[&[c]], &mut transcript)
+            verify_proof(&params, pk.get_vk(), verifier, &[c], &mut transcript)
                 .expect("could not verify_proof");
         }
     }
