@@ -2,7 +2,6 @@ use super::tables::even_bits::{EvenBitsChip, EvenBitsConfig, EvenBitsLookup};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
-    dev::MockProver,
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
         Instance, Selector,
@@ -269,6 +268,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for GreaterThanCircuit<Fp, WORD_BITS> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use halo2_proofs::dev::MockProver;
     use proptest::prelude::*;
 
     prop_compose! {

@@ -779,7 +779,10 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
         match s {
             SelectionB::Pc => r.pc = true,
             SelectionB::PcN => r.pc_next = true,
-            SelectionB::PcPlusOne => r.pc_next = true,
+            SelectionB::PcPlusOne => {
+                r.pc = true;
+                r.one = true;
+            }
             SelectionB::Reg(i) => r.reg[i] = true,
             SelectionB::RegN(i) => r.reg_next[i] = true,
             SelectionB::A => r.a = true,
@@ -952,7 +955,6 @@ pub enum SelectionD {
 #[derive(Debug, Clone, Copy)]
 pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
     pub pc: C,
-    pub pc_plus_one: C,
 
     pub reg: Registers<REG_COUNT, C>,
     pub reg_next: Registers<REG_COUNT, C>,
@@ -974,7 +976,6 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
         SelectiorsD {
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
             pc: meta.new_column(),
-            pc_plus_one: meta.new_column(),
 
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
@@ -990,7 +991,6 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
     fn from(s: SelectionD) -> Self {
         let mut r = SelectiorsD {
             pc: false,
-            pc_plus_one: false,
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
@@ -1000,7 +1000,10 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
         };
         match s {
             SelectionD::Pc => r.pc = true,
-            SelectionD::PcPlusOne => r.pc_plus_one = true,
+            SelectionD::PcPlusOne => {
+                r.pc = true;
+                r.one = true;
+            }
             SelectionD::Reg(i) => r.reg[i] = true,
             SelectionD::RegN(i) => r.reg_next[i] = true,
             SelectionD::A => r.a = true,
@@ -1021,7 +1024,6 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
     ) {
         let Self {
             pc,
-            pc_plus_one,
             reg,
             reg_next,
             a,
@@ -1031,10 +1033,6 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
         } = self;
 
         region.push_cell(pc, vals.pc.into()).unwrap();
-        region
-            .push_cell(pc_plus_one, vals.pc_plus_one.into())
-            .unwrap();
-
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
             region.push_cell(rc, rv.into()).unwrap();
         }
