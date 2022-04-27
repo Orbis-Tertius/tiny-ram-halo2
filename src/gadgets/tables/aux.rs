@@ -312,7 +312,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
 
             trace::Instruction::Not(Not { ri, .. }) => Self {
                 a: SelectionA::A,
-                b: SelectionB::AllBitsSet,
+                b: SelectionB::MaxWord,
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
                 out: Out {
@@ -719,7 +719,7 @@ pub enum SelectionB {
 
     One,
     /// 2^W − 1
-    AllBitsSet,
+    MaxWord,
 }
 
 /// Use `SelectiorsA::new_*` to construct correct selectors.
@@ -740,7 +740,7 @@ pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
     pub temp_var_b: C,
 
     pub one: C,
-    pub all_bits_set: C,
+    pub max_word: C,
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
@@ -758,7 +758,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             a: meta.new_column(),
             temp_var_b: meta.new_column(),
             one: meta.new_column(),
-            all_bits_set: meta.new_column(),
+            max_word: meta.new_column(),
         }
     }
 }
@@ -774,7 +774,7 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
             a: false,
             temp_var_b: false,
             one: false,
-            all_bits_set: false,
+            max_word: false,
         };
         match s {
             SelectionB::Pc => r.pc = true,
@@ -788,7 +788,7 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
             SelectionB::A => r.a = true,
             SelectionB::TempVarB => r.temp_var_b = true,
             SelectionB::One => r.one = true,
-            SelectionB::AllBitsSet => r.all_bits_set = true,
+            SelectionB::MaxWord => r.max_word = true,
         };
         r
     }
@@ -809,7 +809,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             a,
             temp_var_b,
             one,
-            all_bits_set,
+            max_word: max,
         } = self;
 
         region.push_cell(pc, vals.pc.into()).unwrap();
@@ -827,9 +827,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(one, vals.one.into()).unwrap();
-        region
-            .push_cell(all_bits_set, vals.all_bits_set.into())
-            .unwrap();
+        region.push_cell(max, vals.max_word.into()).unwrap();
         region
             .push_cell(temp_var_b, vals.temp_var_b.into())
             .unwrap();
