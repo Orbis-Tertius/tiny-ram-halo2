@@ -62,7 +62,22 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         }
     }
 
-    fn configure<C: Copy, M>(meta: &mut M) -> ProgConfig<WORD_BITS, REG_COUNT, C>
+    fn configure(
+        meta: &mut ConstraintSystem<F>,
+    ) -> ProgConfig<WORD_BITS, REG_COUNT> {
+        let config = Self::new_columns(meta);
+
+        // meta.create_gate("single selector bit set", |meta| {
+        //     // let TempVarSelectors { a, b, c, d, .. }
+        //     // meta.q
+        // });
+
+        config
+    }
+
+    // This could be a method on `ProgConfig`,
+    // but that would require specifying types when calling this method.
+    fn new_columns<C: Copy, M>(meta: &mut M) -> ProgConfig<WORD_BITS, REG_COUNT, C>
     where
         M: NewColumn<C>,
     {
@@ -94,7 +109,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             s,
             l,
             temp_vars,
-        } = Self::configure(&mut meta);
+        } = Self::new_columns(&mut meta);
 
         for (pc_v, inst) in program.0.iter().enumerate() {
             meta.push_cell(pc, F::from_u128(pc_v as u128)).unwrap();
@@ -142,7 +157,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         let advice = [meta.advice_column(), meta.advice_column()];
 
         (
-            ProgChip::<F, WORD_BITS, REG_COUNT>::configure::<Column<Instance>, _>(
+            ProgChip::<F, WORD_BITS, REG_COUNT>::new_columns::<Column<Instance>, _>(
                 meta,
             ),
             EvenBitsChip::<F, WORD_BITS>::configure(meta, advice),
