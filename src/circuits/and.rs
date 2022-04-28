@@ -1,4 +1,4 @@
-use crate::gadgets::tables::even_bits::{
+use crate::circuits::tables::even_bits::{
     EvenBitsChip, EvenBitsConfig, EvenBitsLookup,
 };
 use halo2_proofs::{

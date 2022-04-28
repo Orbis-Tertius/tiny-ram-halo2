@@ -7,7 +7,7 @@ use halo2_proofs::{
 };
 
 use crate::{
-    gadgets::and::AndChip,
+    circuits::and::AndChip,
     trace::{RegName, Step, Trace},
 };
 
@@ -262,7 +262,7 @@ mod tests {
     use pasta_curves::Fp;
 
     use crate::{
-        gadgets::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
+        circuits::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
         trace::*,
     };
 

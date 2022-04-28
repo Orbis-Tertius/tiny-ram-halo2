@@ -192,7 +192,7 @@ mod tests {
     use pasta_curves::Fp;
 
     use crate::{
-        gadgets::tables::prog::{ProgChip, ProgCircuit, ProgConfig},
+        circuits::tables::prog::{ProgChip, ProgCircuit, ProgConfig},
         trace::*,
     };
 
