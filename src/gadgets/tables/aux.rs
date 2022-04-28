@@ -404,7 +404,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
             },
             trace::Instruction::UDiv(UDiv { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+                a: SelectionA::TempVarA,
                 b: SelectionB::RegN(ri),
                 c: SelectionC::A,
                 d: SelectionD::Reg(rj),
@@ -717,7 +717,6 @@ pub enum SelectionB {
     /// Selects the temporary var associated with this selection vector.
     TempVarB,
 
-    One,
     /// 2^W − 1
     MaxWord,
 }
@@ -787,7 +786,6 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
             SelectionB::RegN(i) => r.reg_next[i] = true,
             SelectionB::A => r.a = true,
             SelectionB::TempVarB => r.temp_var_b = true,
-            SelectionB::One => r.one = true,
             SelectionB::MaxWord => r.max_word = true,
         };
         r
@@ -930,7 +928,6 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
 /// Variants ending with `N` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
 pub enum SelectionD {
-    Pc,
     PcPlusOne,
 
     Reg(RegName),
@@ -997,7 +994,6 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
             one: false,
         };
         match s {
-            SelectionD::Pc => r.pc = true,
             SelectionD::PcPlusOne => {
                 r.pc = true;
                 r.one = true;
