@@ -1,11 +1,11 @@
 use std::{
     collections::BTreeMap,
     fmt::Display,
-    ops::{BitAnd, Index, IndexMut},
+    ops::{BitAnd, BitOr, BitXor, Index, IndexMut},
 };
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Word(pub usize);
+pub struct Word(pub u32);
 
 impl From<Word> for u128 {
     fn from(w: Word) -> Self {
@@ -21,17 +21,33 @@ impl BitAnd for Word {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Time(pub usize);
+impl BitOr for Word {
+    type Output = Word;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        Word(self.0 | rhs.0)
+    }
+}
+
+impl BitXor for Word {
+    type Output = Word;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        Word(self.0 ^ rhs.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Address(pub usize);
+pub struct Time(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ProgCount(pub usize);
+pub struct Address(pub u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct RegName(pub usize);
+pub struct ProgCount(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RegName(pub u8);
 
 #[derive(Debug, Clone)]
 pub struct Trace<const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -60,7 +76,7 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
                 .cloned()
                 .enumerate()
                 .map(|(i, word)| {
-                    let address = Address(i * WORD_BITS as usize);
+                    let address = Address(i as u32 * WORD_BITS);
                     // In TinyRAM 2.0 Preamble they specify reading the primary tape
                     // TODO match the spec, and figure out the non-deterministic tapes location.
                     (address, Accesses::init_memory(address, word))
@@ -89,7 +105,7 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
     }
 
     fn store(&mut self, address: Address, time: Time, pc: ProgCount, value: Word) {
-        assert!(value.0 <= 2usize.pow(WORD_BITS as u32));
+        assert!(value.0 <= 2u32.pow(WORD_BITS as u32));
         let accesses = self.access(address);
         accesses.0.push(Access::Store {
             value,
@@ -166,6 +182,7 @@ pub struct Step<const REG_COUNT: usize> {
     pub pc: ProgCount,
     pub instruction: Instruction,
     pub regs: Registers<REG_COUNT, Word>,
+    pub flag: bool,
 }
 
 /// Docs for a variant are on each variant's struct,
@@ -173,18 +190,67 @@ pub struct Step<const REG_COUNT: usize> {
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
     And(And),
-    LoadW(LoadW),
+    Or(Or),
+    Xor(Xor),
+    Not(Not),
+    Add(Add),
+    Sub(Sub),
+    Mul(Mul),
+    UMulh(UMulh),
+    SMulh(SMulh),
+    UDiv(UDiv),
+    UMod(UMod),
+    Shl(Shl),
+    Shr(Shr),
+    /// compare equal
+    Cmpe(Cmpe),
+    /// compare above, unsigned
+    Cmpa(Cmpa),
+    /// compare above or equal, unsigned
+    Cmpae(Cmpae),
+    // compare greater signed
+    Cmpg(Cmpg),
+    /// compare greater or equal, signed
+    Cmpge(Cmpge),
+    Mov(Mov),
+    CMov(CMov),
+    Jmp(Jmp),
+    CJmp(CJmp),
+    CnJmp(CnJmp),
     StoreW(StoreW),
+    LoadW(LoadW),
     Answer(Answer),
 }
 
 impl Instruction {
     pub fn name(&self) -> &str {
         match self {
-            Instruction::And(_) => "and",
-            Instruction::LoadW(_) => "load.w",
-            Instruction::StoreW(_) => "store.w",
-            Instruction::Answer(_) => "answer",
+            Instruction::And(_) => "And",
+            Instruction::LoadW(_) => "Load.w",
+            Instruction::StoreW(_) => "Store.w",
+            Instruction::Answer(_) => "Answer",
+            Instruction::Or(_) => "Or",
+            Instruction::Xor(_) => "Xor",
+            Instruction::Not(_) => "Not",
+            Instruction::Add(_) => "Add",
+            Instruction::Sub(_) => "Sub",
+            Instruction::Mul(_) => "Mul",
+            Instruction::UMulh(_) => "UMulh",
+            Instruction::SMulh(_) => "SMulh",
+            Instruction::UDiv(_) => "Udiv",
+            Instruction::UMod(_) => "UMod",
+            Instruction::Shl(_) => "Shl",
+            Instruction::Shr(_) => "Shr",
+            Instruction::Cmpe(_) => "Cmpe",
+            Instruction::Cmpa(_) => "Cmpa",
+            Instruction::Cmpae(_) => "Cmpae",
+            Instruction::Cmpg(_) => "Cmpg",
+            Instruction::Cmpge(_) => "Cmpge",
+            Instruction::Mov(_) => "Mov",
+            Instruction::CMov(_) => "Cmov",
+            Instruction::Jmp(_) => "Jmp",
+            Instruction::CJmp(_) => "CJmp",
+            Instruction::CnJmp(_) => "CnJmp",
         }
     }
 
@@ -192,15 +258,59 @@ impl Instruction {
         match self {
             Instruction::And(And { ri, .. })
             | Instruction::LoadW(LoadW { ri, .. })
-            | Instruction::StoreW(StoreW { ri, .. }) => Some(*ri),
-            Instruction::Answer(_) => None,
+            | Instruction::StoreW(StoreW { ri, .. })
+            | Instruction::Or(Or { ri, .. })
+            | Instruction::Xor(Xor { ri, .. })
+            | Instruction::Not(Not { ri, .. })
+            | Instruction::Add(Add { ri, .. })
+            | Instruction::Sub(Sub { ri, .. })
+            | Instruction::Mul(Mul { ri, .. })
+            | Instruction::UMulh(UMulh { ri, .. })
+            | Instruction::SMulh(SMulh { ri, .. })
+            | Instruction::UDiv(UDiv { ri, .. })
+            | Instruction::UMod(UMod { ri, .. })
+            | Instruction::Shl(Shl { ri, .. })
+            | Instruction::Shr(Shr { ri, .. })
+            | Instruction::Cmpe(Cmpe { ri, .. })
+            | Instruction::Cmpa(Cmpa { ri, .. })
+            | Instruction::Cmpae(Cmpae { ri, .. })
+            | Instruction::Cmpg(Cmpg { ri, .. })
+            | Instruction::Cmpge(Cmpge { ri, .. })
+            | Instruction::Mov(Mov { ri, .. })
+            | Instruction::CMov(CMov { ri, .. }) => Some(*ri),
+            Instruction::Answer(_)
+            | Instruction::Jmp(_)
+            | Instruction::CJmp(_)
+            | Instruction::CnJmp(_) => None,
         }
     }
 
     pub fn rj(&self) -> Option<RegName> {
         match self {
-            Instruction::And(And { rj, .. }) => Some(*rj),
+            Instruction::And(And { rj, .. })
+            | Instruction::Or(Or { rj, .. })
+            | Instruction::Xor(Xor { rj, .. })
+            | Instruction::Add(Add { rj, .. })
+            | Instruction::Sub(Sub { rj, .. })
+            | Instruction::Mul(Mul { rj, .. })
+            | Instruction::UMulh(UMulh { rj, .. })
+            | Instruction::SMulh(SMulh { rj, .. })
+            | Instruction::UDiv(UDiv { rj, .. })
+            | Instruction::UMod(UMod { rj, .. })
+            | Instruction::Shl(Shl { rj, .. })
+            | Instruction::Shr(Shr { rj, .. }) => Some(*rj),
             Instruction::Answer(_)
+            | Instruction::Cmpe(_)
+            | Instruction::Cmpa(_)
+            | Instruction::Cmpae(_)
+            | Instruction::Cmpg(_)
+            | Instruction::Cmpge(_)
+            | Instruction::Mov(_)
+            | Instruction::CMov(_)
+            | Instruction::Jmp(_)
+            | Instruction::CJmp(_)
+            | Instruction::CnJmp(_)
+            | Instruction::Not(_)
             | Instruction::StoreW(_)
             | Instruction::LoadW(_) => None,
         }
@@ -211,6 +321,28 @@ impl Instruction {
             Instruction::And(And { a, .. })
             | Instruction::LoadW(LoadW { a, .. })
             | Instruction::StoreW(StoreW { a, .. })
+            | Instruction::Or(Or { a, .. })
+            | Instruction::Xor(Xor { a, .. })
+            | Instruction::Not(Not { a, .. })
+            | Instruction::Add(Add { a, .. })
+            | Instruction::Sub(Sub { a, .. })
+            | Instruction::Mul(Mul { a, .. })
+            | Instruction::UMulh(UMulh { a, .. })
+            | Instruction::SMulh(SMulh { a, .. })
+            | Instruction::UDiv(UDiv { a, .. })
+            | Instruction::UMod(UMod { a, .. })
+            | Instruction::Shl(Shl { a, .. })
+            | Instruction::Shr(Shr { a, .. })
+            | Instruction::Cmpe(Cmpe { a, .. })
+            | Instruction::Cmpa(Cmpa { a, .. })
+            | Instruction::Cmpae(Cmpae { a, .. })
+            | Instruction::Cmpg(Cmpg { a, .. })
+            | Instruction::Cmpge(Cmpge { a, .. })
+            | Instruction::Mov(Mov { a, .. })
+            | Instruction::CMov(CMov { a, .. })
+            | Instruction::Jmp(Jmp { a, .. })
+            | Instruction::CJmp(CJmp { a, .. })
+            | Instruction::CnJmp(CnJmp { a, .. })
             | Instruction::Answer(Answer { a }) => *a,
         }
     }
@@ -220,8 +352,30 @@ impl Instruction {
     pub fn opcode(&self) -> u128 {
         match self {
             Instruction::And(_) => 0b00000,
-            Instruction::LoadW(_) => 0b11101,
+            Instruction::Or(_) => 0b00001,
+            Instruction::Xor(_) => 0b00010,
+            Instruction::Not(_) => 0b00011,
+            Instruction::Add(_) => 0b00100,
+            Instruction::Sub(_) => 0b00101,
+            Instruction::Mul(_) => 0b00110,
+            Instruction::UMulh(_) => 0b00111,
+            Instruction::SMulh(_) => 0b01000,
+            Instruction::UDiv(_) => 0b01001,
+            Instruction::UMod(_) => 0b01010,
+            Instruction::Shl(_) => 0b01011,
+            Instruction::Shr(_) => 0b01100,
+            Instruction::Cmpe(_) => 0b01101,
+            Instruction::Cmpa(_) => 0b01110,
+            Instruction::Cmpae(_) => 0b01111,
+            Instruction::Cmpg(_) => 0b10000,
+            Instruction::Cmpge(_) => 0b10001,
+            Instruction::Mov(_) => 0b10010,
+            Instruction::CMov(_) => 0b10011,
+            Instruction::Jmp(_) => 0b10100,
+            Instruction::CJmp(_) => 0b10101,
+            Instruction::CnJmp(_) => 0b10110,
             Instruction::StoreW(_) => 0b11100,
+            Instruction::LoadW(_) => 0b11101,
             Instruction::Answer(_) => 0b11111,
         }
     }
@@ -239,17 +393,40 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} ", self.name())?;
         match self {
-            Instruction::And(And { ri, rj, a }) => {
+            Instruction::And(And { ri, rj, a })
+            | Instruction::Or(Or { ri, rj, a })
+            | Instruction::Xor(Xor { ri, rj, a })
+            | Instruction::Add(Add { ri, rj, a })
+            | Instruction::Sub(Sub { ri, rj, a })
+            | Instruction::Mul(Mul { ri, rj, a })
+            | Instruction::UMulh(UMulh { ri, rj, a })
+            | Instruction::SMulh(SMulh { ri, rj, a })
+            | Instruction::UDiv(UDiv { ri, rj, a })
+            | Instruction::UMod(UMod { ri, rj, a })
+            | Instruction::Shl(Shl { ri, rj, a })
+            | Instruction::Shr(Shr { ri, rj, a }) => {
                 write!(f, "r{} ", ri.0)?;
                 write!(f, "r{} ", rj.0)?;
                 write!(f, "{}", a)
             }
-            Instruction::LoadW(LoadW { ri, a })
+            Instruction::Not(Not { ri, a })
+            | Instruction::Cmpe(Cmpe { ri, a })
+            | Instruction::Cmpa(Cmpa { ri, a })
+            | Instruction::Cmpae(Cmpae { ri, a })
+            | Instruction::Cmpg(Cmpg { ri, a })
+            | Instruction::Cmpge(Cmpge { ri, a })
+            | Instruction::Mov(Mov { ri, a })
+            | Instruction::CMov(CMov { ri, a })
+            | Instruction::LoadW(LoadW { ri, a })
             | Instruction::StoreW(StoreW { ri, a }) => {
                 write!(f, "r{} ", ri.0)?;
                 write!(f, "{}", a)
             }
-            Instruction::Answer(Answer { a }) => write!(f, "{}", a),
+
+            Instruction::Jmp(Jmp { a })
+            | Instruction::CJmp(CJmp { a })
+            | Instruction::CnJmp(CnJmp { a })
+            | Instruction::Answer(Answer { a }) => write!(f, "{}", a),
         }
     }
 }
@@ -322,13 +499,13 @@ impl<const REG_COUNT: usize, T> Index<RegName> for Registers<REG_COUNT, T> {
     type Output = T;
 
     fn index(&self, index: RegName) -> &Self::Output {
-        &self.0[index.0]
+        &self.0[index.0 as usize]
     }
 }
 
 impl<const REG_COUNT: usize, T> IndexMut<RegName> for Registers<REG_COUNT, T> {
     fn index_mut(&mut self, index: RegName) -> &mut Self::Output {
-        &mut self.0[index.0]
+        &mut self.0[index.0 as usize]
     }
 }
 
@@ -337,6 +514,151 @@ impl<const REG_COUNT: usize, T> IndexMut<RegName> for Registers<REG_COUNT, T> {
 pub struct And {
     pub ri: RegName,
     pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+/// compute bitwise OR of `[rj]` and `[A]` and store result in ri
+#[derive(Debug, Clone, Copy)]
+pub struct Or {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+/// compute bitwise OR of `[rj]` and `[A]` and store result in ri
+#[derive(Debug, Clone, Copy)]
+pub struct Xor {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Not {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Add {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Sub {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Mul {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct UMulh {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct SMulh {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct UDiv {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct UMod {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Shl {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Shr {
+    pub ri: RegName,
+    pub rj: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Cmpe {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Cmpa {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Cmpae {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Cmpg {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Cmpge {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Mov {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct CMov {
+    pub ri: RegName,
+    pub a: ImmediateOrRegName,
+}
+
+/// stall or halt (and the return value is `[A]u` )
+#[derive(Debug, Clone, Copy)]
+pub struct Jmp {
+    pub a: ImmediateOrRegName,
+}
+
+/// stall or halt (and the return value is `[A]u` )
+#[derive(Debug, Clone, Copy)]
+pub struct CJmp {
+    pub a: ImmediateOrRegName,
+}
+
+/// stall or halt (and the return value is `[A]u` )
+#[derive(Debug, Clone, Copy)]
+pub struct CnJmp {
     pub a: ImmediateOrRegName,
 }
 
@@ -360,6 +682,19 @@ pub struct Answer {
     pub a: ImmediateOrRegName,
 }
 
+// We don't support read, load.b, or store.b
+
+fn truncate<const WORD_BITS: u32>(word: u128) -> Word {
+    Word((word & ((2u128.pow(WORD_BITS)) - 1)) as u32)
+}
+
+/// We are matching the Haskell TinyRAM emulator.
+/// github.com/Orbis-Tertius/tinyram/blob/main/src/TinyRAM/Params.hs
+const fn get_word_size_bit_mask_msb<const WORD_BITS: u32>() -> u128 {
+    let m = 2u128.pow(WORD_BITS);
+    m * (m - 1)
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Program(pub Vec<Instruction>);
 
@@ -373,18 +708,139 @@ impl Program {
         let mut pc = ProgCount(0);
         let mut time = Time(0);
         let mut exe = Vec::with_capacity(100);
+        let mut flag = false;
         let ans = loop {
-            let instruction =
-                *prog.0.get(pc.0).expect("Program did not Answer 0 or 1.");
+            let instruction = *prog
+                .0
+                .get(pc.0 as usize)
+                .expect("Program did not Answer 0 or 1.");
             exe.push(Step {
                 time,
                 pc,
                 instruction,
                 regs,
+                flag,
             });
             match instruction {
                 Instruction::And(And { ri, rj, a }) => {
-                    regs[ri] = regs[rj] & a.get(&regs)
+                    regs[ri] = regs[rj] & a.get(&regs);
+                    flag = regs[ri].0 == 0;
+                }
+                Instruction::Or(Or { ri, rj, a }) => {
+                    regs[ri] = regs[rj] | a.get(&regs);
+                    flag = regs[ri].0 == 0;
+                }
+                Instruction::Xor(Xor { ri, rj, a }) => {
+                    regs[ri] = regs[rj] ^ a.get(&regs);
+                    flag = regs[ri].0 == 0;
+                }
+                Instruction::Not(Not { ri, a }) => {
+                    regs[ri] = Word(!a.get(&regs).0);
+                    flag = regs[ri].0 == 0;
+                }
+                Instruction::Add(Add { ri, rj, a }) => {
+                    let r = regs[rj].0 as u128 + a.get(&regs).0 as u128;
+
+                    regs[ri] = truncate::<WORD_BITS>(r);
+                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                }
+                Instruction::Sub(Sub { ri, rj, a }) => {
+                    let r = regs[rj].0 as u128 - a.get(&regs).0 as u128;
+                    regs[ri] = truncate::<WORD_BITS>(r);
+                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                }
+                Instruction::Mul(Mul { ri, rj, a }) => {
+                    // compute [rj]u × [A]u and store least significant bits of result in ri
+                    let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
+                    regs[ri] = truncate::<WORD_BITS>(r);
+                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                }
+                Instruction::UMulh(UMulh { ri, rj, a }) => {
+                    // compute [rj]u × [A]u and store most significant bits of result in ri
+                    let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
+                    regs[ri] = Word((r << (!WORD_BITS)) as u32);
+                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                }
+                Instruction::SMulh(SMulh { ri, rj, a }) => {
+                    let a = a.get(&regs);
+                    let rj = regs[rj];
+                    let a_abs =
+                        signed_arithmetic::get_unsigned_component::<WORD_BITS>(a);
+                    let rj_abs =
+                        signed_arithmetic::get_unsigned_component::<WORD_BITS>(rj);
+                    let ri_abs = a_abs * rj_abs;
+
+                    regs[ri] =
+                        signed_arithmetic::signed_mul_high::<WORD_BITS>(a, rj);
+                    flag = ri_abs & get_word_size_bit_mask_msb::<WORD_BITS>() != 0;
+                }
+                Instruction::UDiv(UDiv { ri, rj, a }) => {
+                    let a = a.get(&regs).0;
+                    let y = if a == 0 { 0 } else { regs[rj].0 / a };
+                    regs[ri] = Word(y);
+                    flag = a == 0;
+                }
+                Instruction::UMod(UMod { ri, rj, a }) => {
+                    let a = a.get(&regs).0;
+                    let y = if a == 0 { 0 } else { regs[rj].0 % a };
+                    regs[ri] = Word(y);
+                    flag = a == 0;
+                }
+                Instruction::Shl(Shl { ri, rj, a }) => {
+                    let a = a.get(&regs).0;
+                    let rj = regs[rj].0;
+                    regs[ri] = Word(
+                        rj << truncate::<WORD_BITS>(
+                            std::cmp::min(WORD_BITS, a) as u128
+                        )
+                        .0,
+                    );
+                    flag = (rj & (2u32.pow(WORD_BITS - 1))) != 0;
+                }
+                Instruction::Shr(Shr { ri, rj, a }) => {
+                    let a = a.get(&regs).0;
+                    let rj = regs[rj].0;
+                    regs[ri] = Word(
+                        rj << truncate::<WORD_BITS>(
+                            !std::cmp::min(WORD_BITS, a) as u128
+                        )
+                        .0,
+                    );
+                    flag = (rj & 1) != 0
+                }
+                Instruction::Cmpe(Cmpe { ri, a }) => flag = a.get(&regs) == regs[ri],
+                Instruction::Cmpa(Cmpa { ri, a }) => flag = a.get(&regs) > regs[ri],
+                Instruction::Cmpae(Cmpae { ri, a }) => {
+                    flag = a.get(&regs) >= regs[ri]
+                }
+                Instruction::Cmpg(Cmpg { ri, a }) => {
+                    let ri = signed_arithmetic::decode_signed::<WORD_BITS>(regs[ri]);
+                    let a =
+                        signed_arithmetic::decode_signed::<WORD_BITS>(a.get(&regs));
+                    flag = ri > a;
+                }
+                Instruction::Cmpge(Cmpge { ri, a }) => {
+                    let ri = signed_arithmetic::decode_signed::<WORD_BITS>(regs[ri]);
+                    let a =
+                        signed_arithmetic::decode_signed::<WORD_BITS>(a.get(&regs));
+                    flag = ri >= a;
+                }
+                Instruction::Mov(Mov { ri, a }) => regs[ri] = a.get(&regs),
+                Instruction::CMov(CMov { ri, a }) => {
+                    if flag {
+                        regs[ri] = a.get(&regs)
+                    }
+                }
+                Instruction::Jmp(Jmp { a }) => pc = ProgCount(a.get(&regs).0),
+                Instruction::CJmp(CJmp { a }) => {
+                    if flag {
+                        pc = ProgCount(a.get(&regs).0)
+                    }
+                }
+                Instruction::CnJmp(CnJmp { a }) => {
+                    if !flag {
+                        pc = ProgCount(a.get(&regs).0)
+                    }
                 }
                 Instruction::LoadW(LoadW { ri, a }) => {
                     regs[ri] = mem.load(Address(a.get(&regs).0), time, pc);
@@ -404,6 +860,44 @@ impl Program {
             ans,
             exe,
         }
+    }
+}
+
+/// github.com/Orbis-Tertius/tinyram/blob/main/src/TinyRAM/SignedArithmetic.hs
+mod signed_arithmetic {
+    use super::Word;
+
+    pub fn get_sign<const WORD_BITS: u32>(w: Word) -> isize {
+        if (WORD_BITS - 1) & w.0 == 0 {
+            1
+        } else {
+            -1
+        }
+    }
+
+    pub fn decode_signed<const WORD_BITS: u32>(w: Word) -> i64 {
+        let m = 2i64.pow(WORD_BITS - 1);
+        let w = w.0 as i64;
+        (w & (m - 1)) - (w & m)
+    }
+
+    pub fn get_unsigned_component<const WORD_BITS: u32>(w: Word) -> u128 {
+        decode_signed::<WORD_BITS>(w).abs() as _
+    }
+
+    pub fn signed_mul_high<const WORD_BITS: u32>(x: Word, y: Word) -> Word {
+        let x_sign = get_sign::<WORD_BITS>(x);
+        let y_sign = get_sign::<WORD_BITS>(y);
+        let z_sign = x_sign * y_sign;
+        let x_abs = get_unsigned_component::<WORD_BITS>(x);
+        let y_abs = get_unsigned_component::<WORD_BITS>(y);
+        let z_abs = x_abs * y_abs;
+        let sign_bit = if z_sign == -1 {
+            2u128.pow(WORD_BITS - 1)
+        } else {
+            0
+        };
+        Word((sign_bit | z_abs << !WORD_BITS) as u32)
     }
 }
 

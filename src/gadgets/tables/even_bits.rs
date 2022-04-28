@@ -273,7 +273,6 @@ fn decompose_test_even_odd() {
 use proptest::prelude::*;
 
 proptest! {
-
     #[test]
     fn decompose_test(a in 0..u128::MAX) {
         use pasta_curves::Fp;

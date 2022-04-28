@@ -2,7 +2,7 @@ use halo2_proofs::{arithmetic::FieldExt, plonk};
 
 use crate::{
     assign::{NewColumn, PushRow},
-    trace::{self, And, LoadW, RegName, Registers, StoreW},
+    trace::{self, *},
 };
 
 #[derive(Debug, Clone)]
@@ -81,8 +81,8 @@ pub struct Out<T> {
 
     /// arithmetic
     pub sum: T,
-    pub prog: T,
     pub ssum: T,
+    pub prod: T,
     pub sprod: T,
     pub mod_: T,
 
@@ -101,7 +101,7 @@ impl<T> Out<T> {
             xor: new_fn(),
             or: new_fn(),
             sum: new_fn(),
-            prog: new_fn(),
+            prod: new_fn(),
             ssum: new_fn(),
             sprod: new_fn(),
             mod_: new_fn(),
@@ -125,7 +125,7 @@ impl<C> Out<C> {
             xor,
             or,
             sum,
-            prog,
+            prod,
             ssum,
             sprod,
             mod_,
@@ -140,7 +140,7 @@ impl<C> Out<C> {
         region.push_cell(xor, vals.xor.into())?;
         region.push_cell(or, vals.or.into())?;
         region.push_cell(sum, vals.sum.into())?;
-        region.push_cell(prog, vals.prog.into())?;
+        region.push_cell(prod, vals.prod.into())?;
         region.push_cell(ssum, vals.ssum.into())?;
         region.push_cell(sprod, vals.sprod.into())?;
         region.push_cell(mod_, vals.mod_.into())?;
@@ -161,7 +161,7 @@ impl<T> Out<T> {
             xor: self.xor.into(),
             or: self.or.into(),
             sum: self.sum.into(),
-            prog: self.prog.into(),
+            prod: self.prod.into(),
             ssum: self.ssum.into(),
             sprod: self.sprod.into(),
             mod_: self.mod_.into(),
@@ -240,7 +240,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             xor: false,
             or: false,
             sum: false,
-            prog: false,
+            prod: false,
             ssum: false,
             sprod: false,
             mod_: false,
@@ -275,20 +275,298 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
+            trace::Instruction::Or(Or { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::RegN(ri),
+                d: SelectionD::Unset,
+                out: Out {
+                    or: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::Xor(Xor { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::RegN(ri),
+                d: SelectionD::Unset,
+                out: Out {
+                    xor: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+
+            trace::Instruction::Not(Not { ri, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::MaxWord,
+                c: SelectionC::RegN(ri),
+                d: SelectionD::Unset,
+                out: Out {
+                    xor: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
             // Reference Page 27, Fig. 4
-            // trace::Instruction::Add(Add { ri, rj, .. }) => Self {
-            //     a: SelectionA::A,
-            //     b: SelectionB::Reg(rj),
-            //     c: SelectionC::RegN(ri),
-            //     d: SelectionD::Zero,
-            //     out: Out { sum: true, ..out },
-            //     ch: UnChangedSelectors {
-            //         regs: ch.regs.set(ri, false),
-            //         flag: false,
-            //         ..ch
-            //     },
-            // },
-            // Reference Page 34, Fig. 10
+            trace::Instruction::Add(Add { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::RegN(ri),
+                d: SelectionD::Zero,
+                out: Out { sum: true, ..out },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::Sub(Sub { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::RegN(ri),
+                c: SelectionC::Reg(rj),
+                d: SelectionD::Zero,
+                out: Out { sum: true, ..out },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::Mul(Mul { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::TempVarC,
+                d: SelectionD::RegN(ri),
+                out: Out {
+                    prod: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::UMulh(UMulh { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::RegN(ri),
+                d: SelectionD::TempVarD,
+                out: Out {
+                    prod: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::SMulh(SMulh { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::RegN(ri),
+                d: SelectionD::TempVarD,
+                out: Out {
+                    sprod: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::UDiv(UDiv { ri, rj, .. }) => Self {
+                a: SelectionA::TempVarA,
+                b: SelectionB::RegN(ri),
+                c: SelectionC::A,
+                d: SelectionD::Reg(rj),
+                out: Out {
+                    mod_: true,
+                    flag1: true,
+                    flag2: true,
+                    flag3: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::UMod(UMod { ri, rj, .. }) => Self {
+                a: SelectionA::RegN(ri),
+                b: SelectionB::TempVarB,
+                c: SelectionC::A,
+                d: SelectionD::Reg(rj),
+                out: Out {
+                    mod_: true,
+                    flag1: true,
+                    flag2: true,
+                    flag3: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::Shl(Shl { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::TempVarC,
+                d: SelectionD::RegN(ri),
+                out: Out {
+                    shift: true,
+                    flag4: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+            trace::Instruction::Shr(Shr { ri, rj, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(rj),
+                c: SelectionC::RegN(ri),
+                d: SelectionD::TempVarD,
+                out: Out {
+                    shift: true,
+                    flag4: true,
+                    ..out
+                },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    flag: false,
+                    ..ch
+                },
+            },
+
+            // Reference Page 33, Fig. 8
+            trace::Instruction::Cmpe(Cmpe { ri, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::Reg(ri),
+                c: SelectionC::TempVarC,
+                d: SelectionD::Unset,
+                out: Out {
+                    xor: true,
+                    flag1: true,
+                    flag2: true,
+                    ..out
+                },
+                ch: UnChangedSelectors { flag: false, ..ch },
+            },
+            trace::Instruction::Cmpa(Cmpa { ri, .. }) => Self {
+                a: SelectionA::Reg(ri),
+                b: SelectionB::TempVarB,
+                c: SelectionC::A,
+                d: SelectionD::Zero,
+                out: Out { sum: true, ..out },
+                ch: UnChangedSelectors { flag: false, ..ch },
+            },
+            trace::Instruction::Cmpae(Cmpae { ri, .. }) => Self {
+                a: SelectionA::Reg(ri),
+                b: SelectionB::TempVarB,
+                c: SelectionC::A,
+                d: SelectionD::One,
+                out: Out { sum: true, ..out },
+                ch: UnChangedSelectors { flag: false, ..ch },
+            },
+            trace::Instruction::Cmpg(Cmpg { ri, .. }) => Self {
+                a: SelectionA::Reg(ri),
+                b: SelectionB::TempVarB,
+                c: SelectionC::A,
+                d: SelectionD::Zero,
+                out: Out { ssum: true, ..out },
+                ch: UnChangedSelectors { flag: false, ..ch },
+            },
+            trace::Instruction::Cmpge(Cmpge { ri, .. }) => Self {
+                a: SelectionA::Reg(ri),
+                b: SelectionB::TempVarB,
+                c: SelectionC::A,
+                d: SelectionD::One,
+                out: Out { ssum: true, ..out },
+                ch: UnChangedSelectors { flag: false, ..ch },
+            },
+            trace::Instruction::Mov(Mov { ri, .. }) => Self {
+                a: SelectionA::A,
+                b: SelectionB::RegN(ri),
+                c: SelectionC::Zero,
+                d: SelectionD::Unset,
+                out: Out { xor: true, ..out },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    ..ch
+                },
+            },
+            trace::Instruction::CMov(CMov { ri, .. }) => Self {
+                a: SelectionA::RegN(ri),
+                b: SelectionB::A,
+                c: SelectionC::Zero,
+                // The table on page 34 call for rj,t.
+                // It's a typo, on page 33 d = ri,t.
+                d: SelectionD::Reg(ri),
+                out: Out { mod_: true, ..out },
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    ..ch
+                },
+            },
+            trace::Instruction::Jmp(_) => Self {
+                a: SelectionA::A,
+                b: SelectionB::PcN,
+                c: SelectionC::Zero,
+                d: SelectionD::Unset,
+                out: Out { xor: true, ..out },
+                ch: UnChangedSelectors { pc: false, ..ch },
+            },
+            trace::Instruction::CJmp(_) => Self {
+                a: SelectionA::PcN,
+                b: SelectionB::A,
+                c: SelectionC::Zero,
+                d: SelectionD::PcPlusOne,
+                out: Out { mod_: true, ..out },
+                ch: UnChangedSelectors { pc: false, ..ch },
+            },
+            trace::Instruction::CnJmp(_) => Self {
+                a: SelectionA::PcN,
+                b: SelectionB::PcPlusOne,
+                c: SelectionC::Zero,
+                d: SelectionD::A,
+                out: Out { mod_: true, ..out },
+                ch: UnChangedSelectors { pc: false, ..ch },
+            },
+
             trace::Instruction::LoadW(LoadW { ri, .. }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::Reg(ri),
@@ -430,6 +708,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
 pub enum SelectionB {
     Pc,
     PcN,
+    PcPlusOne,
 
     Reg(RegName),
     RegN(RegName),
@@ -438,7 +717,8 @@ pub enum SelectionB {
     /// Selects the temporary var associated with this selection vector.
     TempVarB,
 
-    One,
+    /// 2^W − 1
+    MaxWord,
 }
 
 /// Use `SelectiorsA::new_*` to construct correct selectors.
@@ -447,6 +727,8 @@ pub enum SelectionB {
 pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
     pub pc: C,
     pub pc_next: C,
+
+    pub pc_plus_one: C,
 
     pub reg: Registers<REG_COUNT, C>,
     pub reg_next: Registers<REG_COUNT, C>,
@@ -457,6 +739,7 @@ pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
     pub temp_var_b: C,
 
     pub one: C,
+    pub max_word: C,
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
@@ -467,12 +750,14 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
         SelectiorsB {
             pc: meta.new_column(),
             pc_next: meta.new_column(),
+            pc_plus_one: meta.new_column(),
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             a: meta.new_column(),
             temp_var_b: meta.new_column(),
             one: meta.new_column(),
+            max_word: meta.new_column(),
         }
     }
 }
@@ -482,20 +767,26 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
         let mut r = SelectiorsB {
             pc: false,
             pc_next: false,
+            pc_plus_one: false,
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
             temp_var_b: false,
             one: false,
+            max_word: false,
         };
         match s {
             SelectionB::Pc => r.pc = true,
             SelectionB::PcN => r.pc_next = true,
+            SelectionB::PcPlusOne => {
+                r.pc = true;
+                r.one = true;
+            }
             SelectionB::Reg(i) => r.reg[i] = true,
             SelectionB::RegN(i) => r.reg_next[i] = true,
             SelectionB::A => r.a = true,
             SelectionB::TempVarB => r.temp_var_b = true,
-            SelectionB::One => r.one = true,
+            SelectionB::MaxWord => r.max_word = true,
         };
         r
     }
@@ -510,15 +801,20 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
         let Self {
             pc,
             pc_next,
+            pc_plus_one,
             reg,
             reg_next,
             a,
             temp_var_b,
             one,
+            max_word: max,
         } = self;
 
         region.push_cell(pc, vals.pc.into()).unwrap();
         region.push_cell(pc_next, vals.pc_next.into()).unwrap();
+        region
+            .push_cell(pc_plus_one, vals.pc_plus_one.into())
+            .unwrap();
 
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
             region.push_cell(rc, rv.into()).unwrap();
@@ -529,6 +825,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(one, vals.one.into()).unwrap();
+        region.push_cell(max, vals.max_word.into()).unwrap();
         region
             .push_cell(temp_var_b, vals.temp_var_b.into())
             .unwrap();
@@ -631,7 +928,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
 /// Variants ending with `N` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
 pub enum SelectionD {
-    Pc,
+    PcPlusOne,
 
     Reg(RegName),
     RegN(RegName),
@@ -642,7 +939,9 @@ pub enum SelectionD {
     TempVarD,
 
     Zero,
+    One,
     // No bit is set in this selection vector.
+    // Denoted `/` in the arya paper.
     Unset,
 }
 
@@ -661,6 +960,7 @@ pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
     pub temp_var_d: C,
 
     pub zero: C,
+    pub one: C,
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
@@ -671,11 +971,13 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
         SelectiorsD {
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
             pc: meta.new_column(),
+
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             a: meta.new_column(),
             temp_var_d: meta.new_column(),
             zero: meta.new_column(),
+            one: meta.new_column(),
         }
     }
 }
@@ -689,14 +991,19 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
             a: false,
             temp_var_d: false,
             zero: false,
+            one: false,
         };
         match s {
-            SelectionD::Pc => r.pc = true,
+            SelectionD::PcPlusOne => {
+                r.pc = true;
+                r.one = true;
+            }
             SelectionD::Reg(i) => r.reg[i] = true,
             SelectionD::RegN(i) => r.reg_next[i] = true,
             SelectionD::A => r.a = true,
             SelectionD::TempVarD => r.temp_var_d = true,
             SelectionD::Zero => r.zero = true,
+            SelectionD::One => r.one = true,
             SelectionD::Unset => (),
         };
         r
@@ -716,10 +1023,10 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
             a,
             temp_var_d,
             zero,
+            one,
         } = self;
 
         region.push_cell(pc, vals.pc.into()).unwrap();
-
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
             region.push_cell(rc, rv.into()).unwrap();
         }
@@ -729,6 +1036,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(zero, vals.zero.into()).unwrap();
+        region.push_cell(one, vals.one.into()).unwrap();
         region
             .push_cell(temp_var_d, vals.temp_var_d.into())
             .unwrap();
