@@ -28,7 +28,7 @@
               };
             pkgs-master = import nixpkgs-master { inherit system; };
 
-          rustChannel = "1.59.0";
+          rustChannel = "1.60.0";
           rustPkgs =
             pkgs.rustBuilder.makePackageSet'
               {
