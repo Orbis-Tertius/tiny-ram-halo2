@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+    poly::Rotation,
 };
 
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    aux::{Out, TempVarSelectors},
+    aux::{Out, SelectiorsA, TempVarSelectors},
     even_bits::{EvenBitsChip, EvenBitsConfig},
 };
 
@@ -25,6 +26,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone, Copy)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
+    table_max_len: Selector,
     time: Column<Advice>,
     pc: Column<Advice>,
     /// `Exe_inst` in the paper.
@@ -102,8 +104,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let flag = meta.advice_column();
         let address = meta.advice_column();
         let value = meta.advice_column();
+        let out = Out::new(|| meta.advice_column());
+        let temp_vars = TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+        let table_max_len = meta.selector();
 
-        ExeConfig {
+        let config = ExeConfig {
             time,
             pc,
             opcode,
@@ -116,9 +121,32 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             b,
             c,
             d,
-            out: Out::new(|| meta.advice_column()),
-            temp_vars: TempVarSelectors::new::<F, ConstraintSystem<F>>(meta),
+            out,
+            temp_vars,
+            table_max_len,
+        };
+
+        {
+            let SelectiorsA {
+                pc_next,
+                reg,
+                reg_next,
+                a,
+                v_addr,
+                temp_var_a,
+            } = temp_vars.a;
+
+            meta.create_gate("tv[a][pc_next]", |meta| {
+                let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+                let pc_next = meta.query_advice(config.pc, Rotation::next());
+                let t_var_a = meta.query_advice(config.a, Rotation::cur());
+
+                let table_max_len = meta.query_selector(table_max_len);
+
+                vec![table_max_len * sa_pc_next * (pc_next - t_var_a)]
+            });
         }
+        config
     }
 
     fn step(
@@ -141,12 +169,15 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             d,
             out,
             temp_vars,
+            table_max_len,
         } = self.config;
 
         layouter
             .assign_region(
                 || format!("{}", step.instruction),
                 |mut region: Region<'_, F>| {
+                    table_max_len.enable(&mut region, 0)?;
+
                     region
                         .assign_advice(
                             || format!("time: {}", step.time.0),
@@ -196,6 +227,26 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             )
                             .unwrap();
                     }
+
+
+                    region
+                        .assign_advice(
+                            || format!("flag: {}", step.flag),
+                            immediate,
+                            0,
+                            || Ok(F::from(step.flag)),
+                        )
+                        .unwrap();
+
+                    region
+                        .assign_advice(
+                            || format!("a: {}", step.flag),
+                            immediate,
+                            0,
+                            || Ok(F::from(step.flag)),
+                        )
+                        .unwrap();
+
 
                     Ok(())
                 },
