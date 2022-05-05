@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    aux::{Out, SelectiorsA, TempVarSelectors},
+    aux::{Out, SelectiorsA, TempVarSelectors, TempVarSelectorsRow},
     even_bits::{EvenBitsChip, EvenBitsConfig},
 };
 
@@ -48,7 +48,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-    temp_vars: TempVarSelectors<REG_COUNT, Column<Advice>>,
+    temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -105,7 +105,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let address = meta.advice_column();
         let value = meta.advice_column();
         let out = Out::new(|| meta.advice_column());
-        let temp_vars = TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+        let temp_var_selectors =
+            TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
         let table_max_len = meta.selector();
 
         let config = ExeConfig {
@@ -122,7 +123,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             c,
             d,
             out,
-            temp_vars,
+            temp_var_selectors,
             table_max_len,
         };
 
@@ -133,8 +134,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 reg_next,
                 a,
                 v_addr,
-                temp_var_a,
-            } = temp_vars.a;
+                non_det,
+            } = temp_var_selectors.a;
 
             meta.create_gate("tv[a][pc_next]", |meta| {
                 let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
@@ -152,8 +153,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     fn step(
         &self,
         mut layouter: impl Layouter<F>,
-        step: &Step<REG_COUNT>,
+        steps: &[Step<REG_COUNT>],
+        i: usize,
     ) -> Result<(), Error> {
+        let step = &steps[i];
         let ExeConfig {
             time,
             pc,
@@ -168,7 +171,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             c,
             d,
             out,
-            temp_vars,
+            temp_var_selectors,
             table_max_len,
         } = self.config;
 
@@ -228,7 +231,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .unwrap();
                     }
 
-
                     region
                         .assign_advice(
                             || format!("flag: {}", step.flag),
@@ -238,15 +240,47 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         )
                         .unwrap();
 
-                    region
-                        .assign_advice(
-                            || format!("a: {}", step.flag),
-                            immediate,
-                            0,
-                            || Ok(F::from(step.flag)),
-                        )
-                        .unwrap();
+                    let temp_var_selectors_row =
+                        TempVarSelectorsRow::<REG_COUNT>::from(&step.instruction);
+                    {
+                        let (ta, tb, tc, td) = temp_var_selectors_row
+                            .push_temp_var_vals::<F, WORD_BITS>(steps, i);
 
+                        region
+                            .assign_advice(
+                                || format!("a: {}", ta),
+                                a,
+                                0,
+                                || Ok(F::from_u128(ta as u128)),
+                            )
+                            .unwrap();
+                        region
+                            .assign_advice(
+                                || format!("b: {}", tb),
+                                b,
+                                0,
+                                || Ok(F::from_u128(tb as u128)),
+                            )
+                            .unwrap();
+                        region
+                            .assign_advice(
+                                || format!("c: {}", tc),
+                                c,
+                                0,
+                                || Ok(F::from_u128(tc as u128)),
+                            )
+                            .unwrap();
+                        region
+                            .assign_advice(
+                                || format!("d: {}", td),
+                                d,
+                                0,
+                                || Ok(F::from_u128(td as u128)),
+                            )
+                            .unwrap();
+                    }
+                    temp_var_selectors
+                        .push_cells(&mut region, temp_var_selectors_row);
 
                     Ok(())
                 },
@@ -291,11 +325,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
         if let Some(trace) = &self.trace {
-            for step in trace.exe.iter() {
+            for (i, step) in trace.exe.iter().enumerate() {
                 exe_chip
                     .step(
                         layouter.namespace(|| format!("{}", step.instruction)),
-                        step,
+                        &trace.exe,
+                        i,
                     )
                     .unwrap();
             }
