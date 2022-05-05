@@ -37,6 +37,8 @@ impl BitXor for Word {
     }
 }
 
+/// Execution step count.
+/// Time counts from 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time(pub u32);
 
@@ -707,7 +709,7 @@ impl Program {
         let prog = self;
         let mut regs = Registers::<REG_COUNT, Word>::default();
         let mut pc = ProgCount(0);
-        let mut time = Time(0);
+        let mut time = Time(1);
         let mut exe = Vec::with_capacity(100);
         let mut flag = false;
         let ans = loop {
