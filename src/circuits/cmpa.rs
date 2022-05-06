@@ -2,13 +2,13 @@ use super::tables::even_bits::{EvenBitsChip, EvenBitsConfig, EvenBitsLookup};
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
+    pasta::Fp,
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Error, Expression, Fixed,
         Instance, Selector,
     },
     poly::Rotation,
 };
-use pasta_curves::Fp;
 use std::marker::PhantomData;
 
 pub trait GreaterThanInstructions<F: FieldExt>: Chip<F> {

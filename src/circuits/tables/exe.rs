@@ -376,7 +376,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 #[cfg(test)]
 mod tests {
     use halo2_proofs::dev::MockProver;
-    use pasta_curves::Fp;
+    use halo2_proofs::pasta::Fp;
 
     use crate::{
         circuits::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,

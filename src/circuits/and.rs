@@ -1,6 +1,7 @@
 use crate::circuits::tables::even_bits::{
     EvenBitsChip, EvenBitsConfig, EvenBitsLookup,
 };
+use halo2_proofs::pasta::Fp;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
@@ -10,7 +11,6 @@ use halo2_proofs::{
     },
     poly::Rotation,
 };
-use pasta_curves::Fp;
 use std::marker::PhantomData;
 
 pub trait NumericInstructions<F: FieldExt>: Chip<F> {

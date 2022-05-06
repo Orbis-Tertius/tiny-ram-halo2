@@ -1,5 +1,7 @@
-use halo2_proofs::plonk::{BatchVerifier, Circuit};
-use pasta_curves::Fp;
+use halo2_proofs::{
+    pasta::Fp,
+    plonk::{BatchVerifier, Circuit},
+};
 
 pub fn gen_proofs_and_verify<
     const WORD_BITS: u32,
@@ -7,12 +9,12 @@ pub fn gen_proofs_and_verify<
 >(
     inputs: Vec<(C, Vec<Vec<Fp>>)>,
 ) {
+    use halo2_proofs::pasta::{vesta, EqAffine};
     use halo2_proofs::{
         plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
         poly::commitment::Params,
         transcript::{Blake2bRead, Blake2bWrite},
     };
-    use pasta_curves::{vesta, EqAffine};
     use rand_core::OsRng;
 
     let k = 1 + WORD_BITS / 2;
@@ -79,12 +81,12 @@ pub fn gen_proofs_and_verify_should_fail<
     circuit: C,
     public_input: Vec<Fp>,
 ) {
+    use halo2_proofs::pasta::{vesta, EqAffine};
     use halo2_proofs::{
         plonk::{create_proof, keygen_pk, keygen_vk, verify_proof, SingleVerifier},
         poly::commitment::Params,
         transcript::{Blake2bRead, Blake2bWrite},
     };
-    use pasta_curves::{vesta, EqAffine};
     use rand_core::OsRng;
 
     let k = 1 + WORD_BITS / 2;

@@ -130,8 +130,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 #[test]
 fn fp_from_bool() {
     // We rely on this property
-    assert_eq!(pasta_curves::Fp::zero(), false.into());
-    assert_eq!(pasta_curves::Fp::one(), true.into());
+    assert_eq!(halo2_proofs::pasta::Fp::zero(), false.into());
+    assert_eq!(halo2_proofs::pasta::Fp::one(), true.into());
 }
 
 #[derive(Default)]
@@ -189,7 +189,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 #[cfg(test)]
 mod tests {
     use halo2_proofs::dev::MockProver;
-    use pasta_curves::Fp;
+    use halo2_proofs::pasta::Fp;
 
     use crate::{
         circuits::tables::prog::{ProgChip, ProgCircuit, ProgConfig},

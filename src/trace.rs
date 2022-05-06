@@ -947,7 +947,7 @@ fn trace_load_and_store_ans_test() {
         trace.mem.address.get(&Address(1)).unwrap().0[1],
         Access::Store {
             address: Address(1),
-            time: Time(2),
+            time: Time(3),
             pc: ProgCount(2),
             value: Word(0b1)
         }
