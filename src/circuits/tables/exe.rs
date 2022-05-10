@@ -157,8 +157,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 // let table_max_len = meta.query_selector(table_max_len);
                 let exe_len = meta.query_selector(exe_len);
 
-                // vec![exe_len * time_next * sa_pc_next * (pc_next - t_var_a)]
-                vec![exe_len * F::zero()]
+                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var_a)]
             });
         }
         config
