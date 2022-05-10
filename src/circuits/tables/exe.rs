@@ -265,11 +265,18 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             )
                             .unwrap();
 
-                        let temp_var_selectors_row =
-                            TempVarSelectorsRow::<REG_COUNT>::from(
-                                &step.instruction,
-                            );
+                        // Assign temp vars and temp var selectors
                         {
+                            let temp_var_selectors_row =
+                                TempVarSelectorsRow::<REG_COUNT>::from(
+                                    &step.instruction,
+                                );
+
+                            temp_var_selectors.push_cells(
+                                &mut (&mut region, i),
+                                dbg!(temp_var_selectors_row),
+                            );
+
                             let (ta, tb, tc, td) = temp_var_selectors_row
                                 .push_temp_var_vals::<F, WORD_BITS>(&trace.exe, i);
 
@@ -306,8 +313,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 )
                                 .unwrap();
                         }
-                        temp_var_selectors
-                            .push_cells(&mut region, temp_var_selectors_row);
                     }
 
                     region
@@ -389,6 +394,11 @@ mod tests {
             Instruction::LoadW(LoadW {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(0)),
+            }),
+            Instruction::And(And {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(0b1)),
             }),
             Instruction::And(And {
                 ri: RegName(1),
