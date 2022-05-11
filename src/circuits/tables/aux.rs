@@ -1,3 +1,5 @@
+use core::panic;
+
 use halo2_proofs::{arithmetic::FieldExt, plonk};
 
 use crate::{
@@ -352,10 +354,10 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Mul(Mul { ri, rj, .. }) => Self {
+            trace::Instruction::Mull(Mull { ri, rj, .. }) => Self {
                 a: SelectionA::A,
                 b: SelectionB::Reg(rj),
-                c: SelectionC::TempVarC,
+                c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
                 out: Out {
                     prod: true,
@@ -373,7 +375,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 a: SelectionA::A,
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
-                d: SelectionD::TempVarD,
+                d: SelectionD::NonDet,
                 out: Out {
                     prod: true,
                     flag1: true,
@@ -390,7 +392,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 a: SelectionA::A,
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
-                d: SelectionD::TempVarD,
+                d: SelectionD::NonDet,
                 out: Out {
                     sprod: true,
                     flag1: true,
@@ -404,7 +406,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
             },
             trace::Instruction::UDiv(UDiv { ri, rj, .. }) => Self {
-                a: SelectionA::TempVarA,
+                a: SelectionA::NonDet,
                 b: SelectionB::RegN(ri),
                 c: SelectionC::A,
                 d: SelectionD::Reg(rj),
@@ -442,7 +444,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             trace::Instruction::Shl(Shl { ri, rj, .. }) => Self {
                 a: SelectionA::A,
                 b: SelectionB::Reg(rj),
-                c: SelectionC::TempVarC,
+                c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
                 out: Out {
                     shift: true,
@@ -459,7 +461,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 a: SelectionA::A,
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
-                d: SelectionD::TempVarD,
+                d: SelectionD::NonDet,
                 out: Out {
                     shift: true,
                     flag4: true,
@@ -476,7 +478,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             trace::Instruction::Cmpe(Cmpe { ri, .. }) => Self {
                 a: SelectionA::A,
                 b: SelectionB::Reg(ri),
-                c: SelectionC::TempVarC,
+                c: SelectionC::NonDet,
                 d: SelectionD::Unset,
                 out: Out {
                     xor: true,
@@ -601,6 +603,101 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
     }
 }
 
+impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
+    pub fn push_temp_var_vals<F: FieldExt, const WORD_BITS: u32>(
+        &self,
+        steps: &[Step<REG_COUNT>],
+        i: usize,
+    ) -> (u32, u32, u32, u32) {
+        let pc = || steps[i].pc.0;
+        let pc_n = || steps[i + 1].pc.0;
+        let reg = |r| steps[i].regs[r].0;
+        let reg_n = |r| steps[i + 1].regs[r].0;
+        let a = || match steps[i].instruction.a() {
+            ImmediateOrRegName::Immediate(a) => a.0,
+            ImmediateOrRegName::RegName(r) => steps[i].regs[r].0,
+        };
+        let v_addr = || steps[i].v_addr.unwrap().0;
+
+        let ta = match self.a {
+            SelectionA::PcN => pc_n(),
+            SelectionA::Reg(r) => reg(r),
+            SelectionA::RegN(r) => reg_n(r),
+            SelectionA::A => a(),
+            SelectionA::VAddr => v_addr(),
+            SelectionA::NonDet => match steps[i].instruction {
+                Instruction::UDiv(UDiv { rj, a, .. }) => {
+                    let a = a.get(&steps[i].regs).0;
+                    if a == 0 {
+                        0
+                    } else {
+                        steps[i].regs[rj].0 / a
+                    }
+                }
+                _ => panic!("Unhandled temp var a case"),
+            },
+        };
+
+        let tb = match self.b {
+            SelectionB::Pc => pc(),
+            SelectionB::PcN => pc_n(),
+            SelectionB::PcPlusOne => pc() + 1,
+            SelectionB::Reg(r) => reg(r),
+            SelectionB::RegN(r) => reg_n(r),
+            SelectionB::A => a(),
+            SelectionB::TempVarB => match steps[i].instruction {
+                Instruction::UMod(UMod { rj, a, .. }) => {
+                    let a = a.get(&steps[i].regs).0;
+                    if a == 0 {
+                        0
+                    } else {
+                        steps[i].regs[rj].0 / a
+                    }
+                }
+                _ => panic!("Unhandled temp var a case"),
+            },
+            SelectionB::MaxWord => todo!(),
+        };
+
+        let tc = match self.c {
+            SelectionC::Reg(r) => reg(r),
+            SelectionC::RegN(r) => reg_n(r),
+            SelectionC::A => a(),
+            SelectionC::NonDet => match steps[i].instruction {
+                Instruction::Mull(Mull { rj, a, .. }) => {
+                    let r = steps[i].regs[rj].0 as u128
+                        * a.get(&steps[i].regs).0 as u128;
+                    // c is the upper word of multiplication (page 28)
+                    trace::truncate::<WORD_BITS>(r << WORD_BITS).0
+                }
+                Instruction::Cmpe(Cmpe { ri, a, .. }) => todo!(),
+                _ => panic!("Unhandled temp var a case"),
+            },
+            SelectionC::Zero => 0,
+        };
+
+        let td = match self.d {
+            SelectionD::PcPlusOne => pc() + 1,
+            SelectionD::Reg(r) => reg(r),
+            SelectionD::RegN(r) => reg_n(r),
+            SelectionD::A => a(),
+            SelectionD::NonDet => match steps[i].instruction {
+                Instruction::UMulh(UMulh { rj, a, .. }) => {
+                    let r = steps[i].regs[rj].0 as u128
+                        * a.get(&steps[i].regs).0 as u128;
+                    // c is the upper word of multiplication (page 28)
+                    trace::truncate::<WORD_BITS>(r << WORD_BITS).0
+                }
+                _ => panic!("Unhandled temp var a case"),
+            },
+            SelectionD::Zero => 0,
+            SelectionD::One => 1,
+            SelectionD::Unset => 0,
+        };
+        (ta, tb, tc, td)
+    }
+}
+
 /// Variants ending with `N` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
 pub enum SelectionA {
@@ -612,8 +709,8 @@ pub enum SelectionA {
     A,
 
     VAddr,
-    /// Selects the temporary var associated with this selection vector.
-    TempVarA,
+    /// "non-deterministic advice"
+    NonDet,
 }
 
 /// Use `SelectiorsA::new_*` to construct correct selectors.
@@ -628,8 +725,8 @@ pub struct SelectiorsA<const REG_COUNT: usize, C: Copy> {
     pub a: C,
 
     pub v_addr: C,
-    /// Selects the temporary var associated with this selection vector.
-    pub temp_var_a: C,
+    /// "non-deterministic advice"
+    pub non_det: C,
 }
 
 impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
@@ -640,13 +737,13 @@ impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
             reg_next: Registers([false; REG_COUNT]),
             a: false,
             v_addr: false,
-            temp_var_a: false,
+            non_det: false,
         };
         match s {
             SelectionA::Reg(i) => r.reg[i] = true,
             SelectionA::RegN(i) => r.reg_next[i] = true,
             SelectionA::A => r.a = true,
-            SelectionA::TempVarA => r.temp_var_a = true,
+            SelectionA::NonDet => r.non_det = true,
             SelectionA::PcN => r.pc_next = true,
             SelectionA::VAddr => r.v_addr = true,
         };
@@ -666,7 +763,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
             reg_next: [0; REG_COUNT].map(|_| meta.new_column()).into(),
             a: meta.new_column(),
             v_addr: meta.new_column(),
-            temp_var_a: meta.new_column(),
+            non_det: meta.new_column(),
         }
     }
 }
@@ -683,7 +780,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
             reg_next,
             a,
             v_addr,
-            temp_var_a,
+            non_det: temp_var_a,
         } = self;
 
         region.push_cell(pc_next, vals.pc_next.into()).unwrap();
@@ -697,9 +794,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(v_addr, vals.v_addr.into()).unwrap();
-        region
-            .push_cell(temp_var_a, vals.temp_var_a.into())
-            .unwrap();
+        region.push_cell(temp_var_a, vals.non_det.into()).unwrap();
     }
 }
 
@@ -840,8 +935,8 @@ pub enum SelectionC {
 
     A,
 
-    /// Selects the temporary var associated with this selection vector.
-    TempVarC,
+    /// "non-deterministic advice"
+    NonDet,
     Zero,
 }
 
@@ -854,8 +949,8 @@ pub struct SelectiorsC<const REG_COUNT: usize, C: Copy> {
 
     pub a: C,
 
-    /// Selects the temporary var associated with this selection vector.
-    pub temp_var_c: C,
+    /// "non-deterministic advice"
+    pub non_det: C,
 
     pub zero: C,
 }
@@ -870,7 +965,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             a: meta.new_column(),
-            temp_var_c: meta.new_column(),
+            non_det: meta.new_column(),
             zero: meta.new_column(),
         }
     }
@@ -882,14 +977,14 @@ impl<const REG_COUNT: usize> From<SelectionC> for SelectiorsC<REG_COUNT, bool> {
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
-            temp_var_c: false,
+            non_det: false,
             zero: false,
         };
         match s {
             SelectionC::Reg(i) => r.reg[i] = true,
             SelectionC::RegN(i) => r.reg_next[i] = true,
             SelectionC::A => r.a = true,
-            SelectionC::TempVarC => r.temp_var_c = true,
+            SelectionC::NonDet => r.non_det = true,
             SelectionC::Zero => r.zero = true,
         };
         r
@@ -906,7 +1001,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
             reg,
             reg_next,
             a,
-            temp_var_c,
+            non_det: temp_var_c,
             zero,
         } = self;
 
@@ -919,9 +1014,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(zero, vals.zero.into()).unwrap();
-        region
-            .push_cell(temp_var_c, vals.temp_var_c.into())
-            .unwrap();
+        region.push_cell(temp_var_c, vals.non_det.into()).unwrap();
     }
 }
 
@@ -935,13 +1028,14 @@ pub enum SelectionD {
 
     A,
 
-    /// Selects the temporary var associated with this selection vector.
-    TempVarD,
+    /// "non-deterministic advice"
+    NonDet,
 
     Zero,
     One,
-    // No bit is set in this selection vector.
-    // Denoted `/` in the arya paper.
+    /// No bit is set in this selection vector.
+    /// Denoted `/` in the arya paper.
+    /// This can likly be merged with `Zero`.
     Unset,
 }
 
@@ -956,8 +1050,8 @@ pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
 
     pub a: C,
 
-    /// Selects the temporary var associated with this selection vector.
-    pub temp_var_d: C,
+    /// "non-deterministic advice"
+    pub non_det: C,
 
     pub zero: C,
     pub one: C,
@@ -975,7 +1069,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             a: meta.new_column(),
-            temp_var_d: meta.new_column(),
+            non_det: meta.new_column(),
             zero: meta.new_column(),
             one: meta.new_column(),
         }
@@ -989,7 +1083,7 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
-            temp_var_d: false,
+            non_det: false,
             zero: false,
             one: false,
         };
@@ -1001,7 +1095,7 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
             SelectionD::Reg(i) => r.reg[i] = true,
             SelectionD::RegN(i) => r.reg_next[i] = true,
             SelectionD::A => r.a = true,
-            SelectionD::TempVarD => r.temp_var_d = true,
+            SelectionD::NonDet => r.non_det = true,
             SelectionD::Zero => r.zero = true,
             SelectionD::One => r.one = true,
             SelectionD::Unset => (),
@@ -1021,7 +1115,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
             reg,
             reg_next,
             a,
-            temp_var_d,
+            non_det,
             zero,
             one,
         } = self;
@@ -1037,8 +1131,6 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(zero, vals.zero.into()).unwrap();
         region.push_cell(one, vals.one.into()).unwrap();
-        region
-            .push_cell(temp_var_d, vals.temp_var_d.into())
-            .unwrap();
+        region.push_cell(non_det, vals.non_det.into()).unwrap();
     }
 }

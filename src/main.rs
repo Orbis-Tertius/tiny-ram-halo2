@@ -1,5 +1,5 @@
 use halo2_proofs::dev::MockProver;
-use pasta_curves::Fp;
+use halo2_proofs::pasta::Fp;
 use tiny_ram_halo2::circuits::{and::AndCircuit, cmpa::GreaterThanCircuit};
 
 fn main() {

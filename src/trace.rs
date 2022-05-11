@@ -37,6 +37,8 @@ impl BitXor for Word {
     }
 }
 
+/// Execution step count.
+/// Time counts from 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time(pub u32);
 
@@ -183,6 +185,7 @@ pub struct Step<const REG_COUNT: usize> {
     pub instruction: Instruction,
     pub regs: Registers<REG_COUNT, Word>,
     pub flag: bool,
+    pub v_addr: Option<Word>,
 }
 
 /// Docs for a variant are on each variant's struct,
@@ -195,7 +198,7 @@ pub enum Instruction {
     Not(Not),
     Add(Add),
     Sub(Sub),
-    Mul(Mul),
+    Mull(Mull),
     UMulh(UMulh),
     SMulh(SMulh),
     UDiv(UDiv),
@@ -234,7 +237,7 @@ impl Instruction {
             Instruction::Not(_) => "Not",
             Instruction::Add(_) => "Add",
             Instruction::Sub(_) => "Sub",
-            Instruction::Mul(_) => "Mul",
+            Instruction::Mull(_) => "Mull",
             Instruction::UMulh(_) => "UMulh",
             Instruction::SMulh(_) => "SMulh",
             Instruction::UDiv(_) => "Udiv",
@@ -264,7 +267,7 @@ impl Instruction {
             | Instruction::Not(Not { ri, .. })
             | Instruction::Add(Add { ri, .. })
             | Instruction::Sub(Sub { ri, .. })
-            | Instruction::Mul(Mul { ri, .. })
+            | Instruction::Mull(Mull { ri, .. })
             | Instruction::UMulh(UMulh { ri, .. })
             | Instruction::SMulh(SMulh { ri, .. })
             | Instruction::UDiv(UDiv { ri, .. })
@@ -292,7 +295,7 @@ impl Instruction {
             | Instruction::Xor(Xor { rj, .. })
             | Instruction::Add(Add { rj, .. })
             | Instruction::Sub(Sub { rj, .. })
-            | Instruction::Mul(Mul { rj, .. })
+            | Instruction::Mull(Mull { rj, .. })
             | Instruction::UMulh(UMulh { rj, .. })
             | Instruction::SMulh(SMulh { rj, .. })
             | Instruction::UDiv(UDiv { rj, .. })
@@ -326,7 +329,7 @@ impl Instruction {
             | Instruction::Not(Not { a, .. })
             | Instruction::Add(Add { a, .. })
             | Instruction::Sub(Sub { a, .. })
-            | Instruction::Mul(Mul { a, .. })
+            | Instruction::Mull(Mull { a, .. })
             | Instruction::UMulh(UMulh { a, .. })
             | Instruction::SMulh(SMulh { a, .. })
             | Instruction::UDiv(UDiv { a, .. })
@@ -357,7 +360,7 @@ impl Instruction {
             Instruction::Not(_) => 0b00011,
             Instruction::Add(_) => 0b00100,
             Instruction::Sub(_) => 0b00101,
-            Instruction::Mul(_) => 0b00110,
+            Instruction::Mull(_) => 0b00110,
             Instruction::UMulh(_) => 0b00111,
             Instruction::SMulh(_) => 0b01000,
             Instruction::UDiv(_) => 0b01001,
@@ -398,7 +401,7 @@ impl Display for Instruction {
             | Instruction::Xor(Xor { ri, rj, a })
             | Instruction::Add(Add { ri, rj, a })
             | Instruction::Sub(Sub { ri, rj, a })
-            | Instruction::Mul(Mul { ri, rj, a })
+            | Instruction::Mull(Mull { ri, rj, a })
             | Instruction::UMulh(UMulh { ri, rj, a })
             | Instruction::SMulh(SMulh { ri, rj, a })
             | Instruction::UDiv(UDiv { ri, rj, a })
@@ -456,7 +459,7 @@ impl Display for ImmediateOrRegName {
 }
 
 impl ImmediateOrRegName {
-    fn get<const REG_COUNT: usize>(
+    pub fn get<const REG_COUNT: usize>(
         &self,
         regs: &Registers<REG_COUNT, Word>,
     ) -> Word {
@@ -554,7 +557,7 @@ pub struct Sub {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct Mul {
+pub struct Mull {
     pub ri: RegName,
     pub rj: RegName,
     pub a: ImmediateOrRegName,
@@ -684,7 +687,7 @@ pub struct Answer {
 
 // We don't support read, load.b, or store.b
 
-fn truncate<const WORD_BITS: u32>(word: u128) -> Word {
+pub fn truncate<const WORD_BITS: u32>(word: u128) -> Word {
     Word((word & ((2u128.pow(WORD_BITS)) - 1)) as u32)
 }
 
@@ -706,7 +709,7 @@ impl Program {
         let prog = self;
         let mut regs = Registers::<REG_COUNT, Word>::default();
         let mut pc = ProgCount(0);
-        let mut time = Time(0);
+        let mut time = Time(1);
         let mut exe = Vec::with_capacity(100);
         let mut flag = false;
         let ans = loop {
@@ -720,6 +723,12 @@ impl Program {
                 instruction,
                 regs,
                 flag,
+                v_addr: if let Instruction::LoadW(LoadW { a, .. }) = instruction {
+                    let a = a.get(&regs).0;
+                    Some(mem.load(Address(a), time, pc))
+                } else {
+                    None
+                },
             });
             match instruction {
                 Instruction::And(And { ri, rj, a }) => {
@@ -749,7 +758,7 @@ impl Program {
                     regs[ri] = truncate::<WORD_BITS>(r);
                     flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
                 }
-                Instruction::Mul(Mul { ri, rj, a }) => {
+                Instruction::Mull(Mull { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store least significant bits of result in ri
                     let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
                     regs[ri] = truncate::<WORD_BITS>(r);
@@ -835,15 +844,20 @@ impl Program {
                 Instruction::CJmp(CJmp { a }) => {
                     if flag {
                         pc = ProgCount(a.get(&regs).0)
+                    } else {
+                        pc.0 += 1
                     }
                 }
                 Instruction::CnJmp(CnJmp { a }) => {
                     if !flag {
                         pc = ProgCount(a.get(&regs).0)
+                    } else {
+                        pc.0 += 1
                     }
                 }
                 Instruction::LoadW(LoadW { ri, a }) => {
-                    regs[ri] = mem.load(Address(a.get(&regs).0), time, pc);
+                    let a = a.get(&regs).0;
+                    regs[ri] = mem.load(Address(a), time, pc);
                 }
                 Instruction::StoreW(StoreW { ri, a }) => {
                     mem.store(Address(a.get(&regs).0), time, pc, regs[ri])
@@ -852,7 +866,12 @@ impl Program {
             };
 
             time.0 += 1;
-            pc.0 += 1;
+            if !matches!(
+                instruction,
+                Instruction::Jmp(_) | Instruction::CnJmp(_) | Instruction::CJmp(_)
+            ) {
+                pc.0 += 1
+            };
         };
         Trace {
             prog,
@@ -928,7 +947,7 @@ fn trace_load_and_store_ans_test() {
         trace.mem.address.get(&Address(1)).unwrap().0[1],
         Access::Store {
             address: Address(1),
-            time: Time(2),
+            time: Time(3),
             pc: ProgCount(2),
             value: Word(0b1)
         }

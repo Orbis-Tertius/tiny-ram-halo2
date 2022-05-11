@@ -18,5 +18,5 @@ proptest = "1.0.0"
 
 [dependencies.halo2_proofs]
 git = "https://github.com/zcash/halo2.git"
-rev = "c12620c598a15f6686767b4cb6ba145396d6d4df"
+rev = "72ff677776504c288f4927a6ce8d3c273ebd588d"
 features = ["dev-graph"]

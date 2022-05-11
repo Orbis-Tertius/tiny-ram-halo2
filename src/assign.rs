@@ -35,9 +35,10 @@ pub trait PushRow<F, C> {
     ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error>;
 }
 
+/// An impl of push_cell for `(Region, offset)`.
 impl<'r, F: FieldExt>
     PushRow<F, halo2_proofs::plonk::Column<halo2_proofs::plonk::Advice>>
-    for Region<'r, F>
+    for (&mut Region<'r, F>, usize)
 {
     type AssignedRef = AssignedCell<F, F>;
     fn push_cell(
@@ -45,7 +46,7 @@ impl<'r, F: FieldExt>
         column: Column<Advice>,
         f: F,
     ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
-        self.assign_advice(|| "", column, 0, &mut || Ok(f))
+        self.0.assign_advice(|| "", column, self.1, &mut || Ok(f))
     }
 }
 

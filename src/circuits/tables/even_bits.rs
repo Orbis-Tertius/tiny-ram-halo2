@@ -259,7 +259,7 @@ fn decompose<F: FieldExt>(word: F) -> (EvenBits<F>, OddBits<F>) {
 
 #[test]
 fn decompose_test_even_odd() {
-    use pasta_curves::Fp;
+    use halo2_proofs::pasta::Fp;
     let odds = 0xAAAA;
     let evens = 0x5555;
     let (e, o) = decompose(Fp::from_u128(odds));
@@ -275,14 +275,14 @@ use proptest::prelude::*;
 proptest! {
     #[test]
     fn decompose_test(a in 0..u128::MAX) {
-        use pasta_curves::Fp;
+        use halo2_proofs::pasta::Fp;
         let a = Fp::from_u128(a);
         decompose(a);
     }
 
     #[test]
     fn fp_u128_test(n in 0..u128::MAX) {
-        use pasta_curves::Fp;
+        use halo2_proofs::pasta::Fp;
         let a = Fp::from_u128(n);
         let b = a.get_lower_128();
         assert_eq!(b, n)
@@ -291,10 +291,10 @@ proptest! {
 
 #[cfg(test)]
 mod mem_test {
+    use halo2_proofs::pasta::Fp;
     use halo2_proofs::{
         circuit::SimpleFloorPlanner, dev::MockProver, plonk::Circuit,
     };
-    use pasta_curves::Fp;
 
     use super::*;
 

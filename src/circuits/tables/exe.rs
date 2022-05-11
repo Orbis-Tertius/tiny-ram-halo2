@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error},
+    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+    poly::Rotation,
 };
 
 use crate::{
@@ -12,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    aux::{Out, TempVarSelectors},
+    aux::{Out, SelectiorsA, TempVarSelectors, TempVarSelectorsRow},
     even_bits::{EvenBitsChip, EvenBitsConfig},
 };
 
@@ -25,6 +26,13 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone, Copy)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
+    table_max_len: Selector,
+    /// This is redundant with 0 padded `time`.
+    /// We need it to make the mock prover happy and not giving CellNotAssigned errors.
+    /// https://github.com/zcash/halo2/issues/533#issuecomment-1097371369
+    ///
+    /// It's set on rows 0..exe_len() - 1
+    exe_len: Selector,
     time: Column<Advice>,
     pc: Column<Advice>,
     /// `Exe_inst` in the paper.
@@ -46,7 +54,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-    temp_vars: TempVarSelectors<REG_COUNT, Column<Advice>>,
+    temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -102,8 +110,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let flag = meta.advice_column();
         let address = meta.advice_column();
         let value = meta.advice_column();
+        let out = Out::new(|| meta.advice_column());
+        let temp_var_selectors =
+            TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+        let table_max_len = meta.selector();
+        let exe_len = meta.selector();
 
-        ExeConfig {
+        let config = ExeConfig {
             time,
             pc,
             opcode,
@@ -116,15 +129,44 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             b,
             c,
             d,
-            out: Out::new(|| meta.advice_column()),
-            temp_vars: TempVarSelectors::new::<F, ConstraintSystem<F>>(meta),
+            out,
+            temp_var_selectors,
+            table_max_len,
+            exe_len,
+        };
+
+        {
+            let SelectiorsA {
+                pc_next,
+                reg,
+                reg_next,
+                a,
+                v_addr,
+                non_det,
+            } = temp_var_selectors.a;
+
+            meta.create_gate("tv[a][pc_next]", |meta| {
+                let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+                let pc_next = meta.query_advice(config.pc, Rotation::next());
+                let t_var_a = meta.query_advice(config.a, Rotation::cur());
+
+                // We disable this gate on the last row of the Exe trace.
+                // This is fine since the last row must contain Answer 0.
+                // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
+                let time_next = meta.query_advice(config.time, Rotation::next());
+                // let table_max_len = meta.query_selector(table_max_len);
+                let exe_len = meta.query_selector(exe_len);
+
+                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var_a)]
+            });
         }
+        config
     }
 
-    fn step(
+    fn assign_trace(
         &self,
         mut layouter: impl Layouter<F>,
-        step: &Step<REG_COUNT>,
+        trace: &Trace<WORD_BITS, REG_COUNT>,
     ) -> Result<(), Error> {
         let ExeConfig {
             time,
@@ -140,62 +182,146 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             c,
             d,
             out,
-            temp_vars,
+            temp_var_selectors,
+            table_max_len,
+            exe_len,
         } = self.config;
 
         layouter
             .assign_region(
-                || format!("{}", step.instruction),
+                || "Exe",
                 |mut region: Region<'_, F>| {
-                    region
-                        .assign_advice(
-                            || format!("time: {}", step.time.0),
-                            time,
-                            0,
-                            || Ok(F::from_u128(step.time.0 as u128)),
-                        )
-                        .unwrap();
+                    for i in 0..trace.exe.len() {
+                        table_max_len.enable(&mut region, i)?;
+                    }
 
-                    region
-                        .assign_advice(
-                            || format!("pc: {}", step.pc.0),
-                            pc,
-                            0,
-                            || Ok(F::from_u128(step.pc.0 as u128)),
-                        )
-                        .unwrap();
+                    for i in 0..trace.exe.len() - 1 {
+                        exe_len.enable(&mut region, i)?;
+                    }
 
-                    region
-                        .assign_advice(
-                            || format!("opcode: {}", step.instruction.opcode()),
-                            opcode,
-                            0,
-                            || Ok(F::from_u128(step.instruction.opcode())),
-                        )
-                        .unwrap();
-
-                    let immediate_v =
-                        step.instruction.a().immediate().unwrap_or_default().into();
-                    region
-                        .assign_advice(
-                            || format!("immediate: {}", immediate_v),
-                            immediate,
-                            0,
-                            || Ok(F::from_u128(immediate_v)),
-                        )
-                        .unwrap();
-
-                    // assign registers
-                    for ((i, reg), v) in reg.iter().enumerate().zip(step.regs.0) {
+                    for (i, step) in trace.exe.iter().enumerate() {
                         region
                             .assign_advice(
-                                || format!("r{}: {}", i, v.0),
-                                *reg,
-                                0,
-                                || Ok(F::from_u128(v.into())),
+                                || format!("time: {}", step.time.0),
+                                time,
+                                i,
+                                || Ok(F::from_u128(step.time.0 as u128)),
                             )
                             .unwrap();
+
+                        region
+                            .assign_advice(
+                                || format!("pc: {}", step.pc.0),
+                                pc,
+                                i,
+                                || Ok(F::from_u128(step.pc.0 as u128)),
+                            )
+                            .unwrap();
+
+                        region
+                            .assign_advice(
+                                || format!("opcode: {}", step.instruction.opcode()),
+                                opcode,
+                                i,
+                                || Ok(F::from_u128(step.instruction.opcode())),
+                            )
+                            .unwrap();
+
+                        let immediate_v = step
+                            .instruction
+                            .a()
+                            .immediate()
+                            .unwrap_or_default()
+                            .into();
+                        region
+                            .assign_advice(
+                                || format!("immediate: {}", immediate_v),
+                                immediate,
+                                i,
+                                || Ok(F::from_u128(immediate_v)),
+                            )
+                            .unwrap();
+
+                        // assign registers
+                        for ((i, reg), v) in reg.iter().enumerate().zip(step.regs.0)
+                        {
+                            region
+                                .assign_advice(
+                                    || format!("r{}: {}", i, v.0),
+                                    *reg,
+                                    i,
+                                    || Ok(F::from_u128(v.into())),
+                                )
+                                .unwrap();
+                        }
+
+                        region
+                            .assign_advice(
+                                || format!("flag: {}", step.flag),
+                                immediate,
+                                i,
+                                || Ok(F::from(step.flag)),
+                            )
+                            .unwrap();
+
+                        // Assign temp vars and temp var selectors
+                        {
+                            let temp_var_selectors_row =
+                                TempVarSelectorsRow::<REG_COUNT>::from(
+                                    &step.instruction,
+                                );
+
+                            temp_var_selectors.push_cells(
+                                &mut (&mut region, i),
+                                dbg!(temp_var_selectors_row),
+                            );
+
+                            let (ta, tb, tc, td) = temp_var_selectors_row
+                                .push_temp_var_vals::<F, WORD_BITS>(&trace.exe, i);
+
+                            region
+                                .assign_advice(
+                                    || format!("a: {}", ta),
+                                    a,
+                                    i,
+                                    || Ok(F::from_u128(ta as u128)),
+                                )
+                                .unwrap();
+                            region
+                                .assign_advice(
+                                    || format!("b: {}", tb),
+                                    b,
+                                    i,
+                                    || Ok(F::from_u128(tb as u128)),
+                                )
+                                .unwrap();
+                            region
+                                .assign_advice(
+                                    || format!("c: {}", tc),
+                                    c,
+                                    i,
+                                    || Ok(F::from_u128(tc as u128)),
+                                )
+                                .unwrap();
+                            region
+                                .assign_advice(
+                                    || format!("d: {}", td),
+                                    d,
+                                    i,
+                                    || Ok(F::from_u128(td as u128)),
+                                )
+                                .unwrap();
+                        }
                     }
+
+                    region
+                        .assign_advice(
+                            || format!("Terminating time: {}", 0),
+                            time,
+                            trace.exe.len(),
+                            || Ok(F::zero()),
+                        )
+                        .unwrap();
 
                     Ok(())
                 },
@@ -240,14 +366,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
 
         if let Some(trace) = &self.trace {
-            for step in trace.exe.iter() {
-                exe_chip
-                    .step(
-                        layouter.namespace(|| format!("{}", step.instruction)),
-                        step,
-                    )
-                    .unwrap();
-            }
+            exe_chip
+                .assign_trace(layouter.namespace(|| "Trace"), trace)
+                .unwrap();
 
             Ok(())
         } else {
@@ -259,7 +380,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 #[cfg(test)]
 mod tests {
     use halo2_proofs::dev::MockProver;
-    use pasta_curves::Fp;
+    use halo2_proofs::pasta::Fp;
 
     use crate::{
         circuits::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
@@ -272,6 +393,11 @@ mod tests {
             Instruction::LoadW(LoadW {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(0)),
+            }),
+            Instruction::And(And {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(0b1)),
             }),
             Instruction::And(And {
                 ri: RegName(1),
