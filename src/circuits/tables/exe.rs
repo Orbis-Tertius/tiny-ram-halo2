@@ -9,11 +9,14 @@ use halo2_proofs::{
 
 use crate::{
     circuits::and::AndChip,
-    trace::{ImmediateOrRegName, Instruction, LoadW, RegName, Step, StoreW, Trace},
+    trace::{
+        ImmediateOrRegName, Instruction, LoadW, RegName, Registers, Step, StoreW,
+        Trace,
+    },
 };
 
 use super::{
-    aux::{Out, SelectiorsA, TempVarSelectors, TempVarSelectorsRow},
+    aux::{Out, SelectiorsA, SelectiorsB, TempVarSelectors, TempVarSelectorsRow},
     even_bits::{EvenBitsChip, EvenBitsConfig},
 };
 
@@ -55,6 +58,102 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // s: Column<Advice>,
     // l: Column<Advice>,
     temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+}
+
+impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
+    fn pc_next_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        pc_next: Column<Advice>,
+        temp_var: Column<Advice>,
+    ) {
+        meta.create_gate("tv[a][pc_next]", |meta| {
+            let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+            let pc_next = meta.query_advice(self.pc, Rotation::next());
+            let t_var = meta.query_advice(temp_var, Rotation::cur());
+
+            // We disable this gate on the last row of the Exe trace.
+            // This is fine since the last row must contain Answer 0.
+            // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
+            let time_next = meta.query_advice(self.time, Rotation::next());
+            let exe_len = meta.query_selector(self.exe_len);
+
+            vec![exe_len * time_next * sa_pc_next * (pc_next - t_var)]
+        });
+    }
+
+    fn reg_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        reg_sel: Registers<REG_COUNT, Column<Advice>>,
+        temp_var: Column<Advice>,
+    ) {
+        for (i, s_reg) in reg_sel.0.into_iter().enumerate() {
+            meta.create_gate("tv[a][reg][i]", |meta| {
+                let s_reg = meta.query_advice(s_reg, Rotation::cur());
+                let reg = meta.query_advice(self.reg[i], Rotation::cur());
+                let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+                let table_max_len = meta.query_selector(self.table_max_len);
+
+                vec![table_max_len * s_reg * (reg - t_var_a)]
+            });
+        }
+    }
+
+    fn reg_next_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        reg_next: Registers<REG_COUNT, Column<Advice>>,
+        temp_var: Column<Advice>,
+    ) {
+        for (i, s_reg_next) in reg_next.0.into_iter().enumerate() {
+            meta.create_gate("tv[a][reg][i]", |meta| {
+                let s_reg = meta.query_advice(s_reg_next, Rotation::cur());
+                let reg_next = meta.query_advice(self.reg[i], Rotation::next());
+                let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+                let time_next = meta.query_advice(self.time, Rotation::next());
+                let exe_len = meta.query_selector(self.exe_len);
+
+                vec![exe_len * time_next * s_reg * (reg_next - t_var_a)]
+            });
+        }
+    }
+
+    fn immediate_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        immediate_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+    ) {
+        meta.create_gate("tv[a][a]", |meta| {
+            let s_immediate = meta.query_advice(immediate_sel, Rotation::cur());
+            let immediate = meta.query_advice(self.immediate, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_immediate * (immediate - t_var_a)]
+        });
+    }
+
+    fn vaddr_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        vaddr_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+    ) {
+        meta.create_gate("tv[a][vaddr]", |meta| {
+            let s_vaddr = meta.query_advice(vaddr_sel, Rotation::cur());
+            let value = meta.query_advice(self.value, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_vaddr * (value - t_var_a)]
+        });
+    }
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -144,72 +243,37 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 reg_next,
                 a,
                 v_addr,
-                non_det,
+                non_det: _,
             } = config.temp_var_selectors.a;
 
-            meta.create_gate("tv[a][pc_next]", |meta| {
-                let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
-                let pc_next = meta.query_advice(config.pc, Rotation::next());
-                let t_var_a = meta.query_advice(config.a, Rotation::cur());
+            config.pc_next_gate(meta, pc_next, config.a);
+            config.reg_gate(meta, reg, config.a);
+            config.reg_next_gate(meta, reg_next, config.a);
+            config.immediate_gate(meta, a, config.a);
+            config.vaddr_gate(meta, v_addr, config.a);
 
-                // We disable this gate on the last row of the Exe trace.
-                // This is fine since the last row must contain Answer 0.
-                // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
-                let time_next = meta.query_advice(config.time, Rotation::next());
-                let exe_len = meta.query_selector(config.exe_len);
+            // TODO use a lookup to check non_det is a valid word.
+        }
 
-                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var_a)]
-            });
+        {
+            // let SelectiorsB {
+            //     pc_next,
+            //     reg,
+            //     reg_next,
+            //     a,
+            //     pc,
+            //     pc_plus_one,
+            //     temp_var_b,
+            //     one,
+            //     max_word,
+            // } = config.temp_var_selectors.b;
 
-            for (i, sa_reg) in reg.0.into_iter().enumerate() {
-                meta.create_gate("tv[a][reg][i]", |meta| {
-                    let sa_reg = meta.query_advice(sa_reg, Rotation::cur());
-                    let reg = meta.query_advice(config.reg[i], Rotation::cur());
-                    let t_var_a = meta.query_advice(config.a, Rotation::cur());
+            // config.pc_next_gate(meta, pc_next, config.a);
+            // config.reg_gate(meta, reg, config.a);
+            // config.reg_next_gate(meta, reg_next, config.a);
+            // config.immediate_gate(meta, a, config.a);
 
-                    let table_max_len = meta.query_selector(config.table_max_len);
-
-                    vec![table_max_len * sa_reg * (reg - t_var_a)]
-                });
-
-                for (i, sa_reg_next) in reg_next.0.into_iter().enumerate() {
-                    meta.create_gate("tv[a][reg][i]", |meta| {
-                        let sa_reg = meta.query_advice(sa_reg_next, Rotation::cur());
-                        let reg_next =
-                            meta.query_advice(config.reg[i], Rotation::next());
-                        let t_var_a = meta.query_advice(config.a, Rotation::cur());
-
-                        let time_next =
-                            meta.query_advice(config.time, Rotation::next());
-                        let exe_len = meta.query_selector(config.exe_len);
-
-                        vec![exe_len * time_next * sa_reg * (reg_next - t_var_a)]
-                    });
-                }
-
-                meta.create_gate("tv[a][a]", |meta| {
-                    let sa_immediate = meta.query_advice(a, Rotation::cur());
-                    let immediate =
-                        meta.query_advice(config.immediate, Rotation::cur());
-                    let t_var_a = meta.query_advice(config.a, Rotation::cur());
-
-                    let table_max_len = meta.query_selector(config.table_max_len);
-
-                    vec![table_max_len * sa_immediate * (immediate - t_var_a)]
-                });
-
-                meta.create_gate("tv[a][vaddr]", |meta| {
-                    let sa_vaddr = meta.query_advice(v_addr, Rotation::cur());
-                    let value = meta.query_advice(config.value, Rotation::cur());
-                    let t_var_a = meta.query_advice(config.a, Rotation::cur());
-
-                    let table_max_len = meta.query_selector(config.table_max_len);
-
-                    vec![table_max_len * sa_vaddr * (value - t_var_a)]
-                });
-
-                // TODO use a lookup to check non_det is a valid word.
-            }
+            // TODO use a lookup to check non_det is a valid word.
         }
         config
     }
