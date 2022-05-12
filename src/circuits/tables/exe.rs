@@ -9,7 +9,7 @@ use halo2_proofs::{
 
 use crate::{
     circuits::and::AndChip,
-    trace::{RegName, Step, Trace},
+    trace::{ImmediateOrRegName, Instruction, LoadW, RegName, Step, StoreW, Trace},
 };
 
 use super::{
@@ -198,14 +198,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     vec![table_max_len * sa_immediate * (immediate - t_var_a)]
                 });
 
-                meta.create_gate("tv[a][address]", |meta| {
+                meta.create_gate("tv[a][vaddr]", |meta| {
                     let sa_vaddr = meta.query_advice(v_addr, Rotation::cur());
-                    let address = meta.query_advice(config.address, Rotation::cur());
+                    let value = meta.query_advice(config.value, Rotation::cur());
                     let t_var_a = meta.query_advice(config.a, Rotation::cur());
 
                     let table_max_len = meta.query_selector(config.table_max_len);
 
-                    vec![table_max_len * sa_vaddr * (address - t_var_a)]
+                    vec![table_max_len * sa_vaddr * (value - t_var_a)]
                 });
 
                 // TODO use a lookup to check non_det is a valid word.
@@ -360,6 +360,28 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     d,
                                     i,
                                     || Ok(F::from_u128(td as u128)),
+                                )
+                                .unwrap();
+                        }
+
+                        {
+                            // let addr = match step.instruction {
+                            //     Instruction::LoadW(LoadW { a, .. })
+                            //     | Instruction::StoreW(StoreW { a, .. }) => match a {
+                            //         ImmediateOrRegName::Immediate(w) => w.0,
+                            //         ImmediateOrRegName::RegName(r) => step.regs[r].0,
+                            //     },
+                            //     // We probably should not be assigning anything in these cases,
+                            //     // but until the mock prover has more precise logic we have to.
+                            //     _ => 0,
+                            // };
+                            let vaddr = step.v_addr.unwrap_or_default().0 as _;
+                            region
+                                .assign_advice(
+                                    || format!("vaddr: {}", vaddr),
+                                    value,
+                                    i,
+                                    || Ok(F::from_u128(vaddr)),
                                 )
                                 .unwrap();
                         }
