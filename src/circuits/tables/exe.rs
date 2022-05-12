@@ -83,56 +83,58 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
-        let time = meta.advice_column();
+        let config = {
+            let time = meta.advice_column();
 
-        let pc = meta.advice_column();
-        meta.enable_equality(pc);
+            let pc = meta.advice_column();
+            meta.enable_equality(pc);
 
-        let opcode = meta.advice_column();
+            let opcode = meta.advice_column();
 
-        let immediate = meta.advice_column();
+            let immediate = meta.advice_column();
 
-        // We cannot write `[meta.advice_column(); REG_COUNT]`,
-        // That would produce an array of the same advice copied REG_COUNT times.
-        //
-        // See Rust's array initialization semantics.
-        let reg = [0; REG_COUNT].map(|_| meta.advice_column());
-        for column in &reg {
-            meta.enable_equality(*column);
-        }
+            // We cannot write `[meta.advice_column(); REG_COUNT]`,
+            // That would produce an array of the same advice copied REG_COUNT times.
+            //
+            // See Rust's array initialization semantics.
+            let reg = [0; REG_COUNT].map(|_| meta.advice_column());
+            for column in &reg {
+                meta.enable_equality(*column);
+            }
 
-        // Temporary vars
-        let a = meta.advice_column();
-        let b = meta.advice_column();
-        let c = meta.advice_column();
-        let d = meta.advice_column();
+            // Temporary vars
+            let a = meta.advice_column();
+            let b = meta.advice_column();
+            let c = meta.advice_column();
+            let d = meta.advice_column();
 
-        let flag = meta.advice_column();
-        let address = meta.advice_column();
-        let value = meta.advice_column();
-        let out = Out::new(|| meta.advice_column());
-        let temp_var_selectors =
-            TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
-        let table_max_len = meta.selector();
-        let exe_len = meta.selector();
+            let flag = meta.advice_column();
+            let address = meta.advice_column();
+            let value = meta.advice_column();
+            let out = Out::new(|| meta.advice_column());
+            let temp_var_selectors =
+                TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+            let table_max_len = meta.selector();
+            let exe_len = meta.selector();
 
-        let config = ExeConfig {
-            time,
-            pc,
-            opcode,
-            immediate,
-            reg,
-            flag,
-            address,
-            value,
-            a,
-            b,
-            c,
-            d,
-            out,
-            temp_var_selectors,
-            table_max_len,
-            exe_len,
+            ExeConfig {
+                time,
+                pc,
+                opcode,
+                immediate,
+                reg,
+                flag,
+                address,
+                value,
+                a,
+                b,
+                c,
+                d,
+                out,
+                temp_var_selectors,
+                table_max_len,
+                exe_len,
+            }
         };
 
         {
@@ -143,7 +145,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 a,
                 v_addr,
                 non_det,
-            } = temp_var_selectors.a;
+            } = config.temp_var_selectors.a;
 
             meta.create_gate("tv[a][pc_next]", |meta| {
                 let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
@@ -154,11 +156,60 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 // This is fine since the last row must contain Answer 0.
                 // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
                 let time_next = meta.query_advice(config.time, Rotation::next());
-                // let table_max_len = meta.query_selector(table_max_len);
-                let exe_len = meta.query_selector(exe_len);
+                let exe_len = meta.query_selector(config.exe_len);
 
                 vec![exe_len * time_next * sa_pc_next * (pc_next - t_var_a)]
             });
+
+            for (i, sa_reg) in reg.0.into_iter().enumerate() {
+                meta.create_gate("tv[a][reg][i]", |meta| {
+                    let sa_reg = meta.query_advice(sa_reg, Rotation::cur());
+                    let reg = meta.query_advice(config.reg[i], Rotation::cur());
+                    let t_var_a = meta.query_advice(config.a, Rotation::cur());
+
+                    let table_max_len = meta.query_selector(config.table_max_len);
+
+                    vec![table_max_len * sa_reg * (reg - t_var_a)]
+                });
+
+                for (i, sa_reg_next) in reg_next.0.into_iter().enumerate() {
+                    meta.create_gate("tv[a][reg][i]", |meta| {
+                        let sa_reg = meta.query_advice(sa_reg_next, Rotation::cur());
+                        let reg_next =
+                            meta.query_advice(config.reg[i], Rotation::next());
+                        let t_var_a = meta.query_advice(config.a, Rotation::cur());
+
+                        let time_next =
+                            meta.query_advice(config.time, Rotation::next());
+                        let exe_len = meta.query_selector(config.exe_len);
+
+                        vec![exe_len * time_next * sa_reg * (reg_next - t_var_a)]
+                    });
+                }
+
+                meta.create_gate("tv[a][a]", |meta| {
+                    let sa_immediate = meta.query_advice(a, Rotation::cur());
+                    let immediate =
+                        meta.query_advice(config.immediate, Rotation::cur());
+                    let t_var_a = meta.query_advice(config.a, Rotation::cur());
+
+                    let table_max_len = meta.query_selector(config.table_max_len);
+
+                    vec![table_max_len * sa_immediate * (immediate - t_var_a)]
+                });
+
+                meta.create_gate("tv[a][address]", |meta| {
+                    let sa_vaddr = meta.query_advice(v_addr, Rotation::cur());
+                    let address = meta.query_advice(config.address, Rotation::cur());
+                    let t_var_a = meta.query_advice(config.a, Rotation::cur());
+
+                    let table_max_len = meta.query_selector(config.table_max_len);
+
+                    vec![table_max_len * sa_vaddr * (address - t_var_a)]
+                });
+
+                // TODO use a lookup to check non_det is a valid word.
+            }
         }
         config
     }
@@ -243,11 +294,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .unwrap();
 
                         // assign registers
-                        for ((i, reg), v) in reg.iter().enumerate().zip(step.regs.0)
+                        for ((rn, reg), v) in reg.iter().enumerate().zip(step.regs.0)
                         {
                             region
                                 .assign_advice(
-                                    || format!("r{}: {}", i, v.0),
+                                    || format!("r{}: {}", rn, v.0),
                                     *reg,
                                     i,
                                     || Ok(F::from_u128(v.into())),
@@ -258,7 +309,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         region
                             .assign_advice(
                                 || format!("flag: {}", step.flag),
-                                immediate,
+                                flag,
                                 i,
                                 || Ok(F::from(step.flag)),
                             )

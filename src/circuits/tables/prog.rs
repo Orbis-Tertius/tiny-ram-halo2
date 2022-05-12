@@ -29,6 +29,11 @@ pub struct ProgConfig<
 > {
     pc: C,
     opcode: C,
+    /// Field #2 is 0 if A is a register name and 1 if A is an immediate value (TinyRam 2 spec).
+    /// Denotes the type of `immediate`.
+    a_type: C,
+    ri: C,
+    rj: C,
     immediate: C,
 
     s: C,
@@ -84,6 +89,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let pc = meta.new_column();
 
         let opcode = meta.new_column();
+        let a_type = meta.new_column();
+        let ri = meta.new_column();
+        let rj = meta.new_column();
         let immediate = meta.new_column();
 
         let s = meta.new_column();
@@ -93,6 +101,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         ProgConfig {
             pc,
             opcode,
+            a_type,
+            ri,
+            rj,
             immediate,
             s,
             l,
@@ -105,6 +116,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let ProgConfig {
             pc,
             opcode,
+            a_type,
+            ri,
+            rj,
             immediate,
             s,
             l,
@@ -114,6 +128,18 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         for (pc_v, inst) in program.0.iter().enumerate() {
             meta.push_cell(pc, F::from_u128(pc_v as u128)).unwrap();
             meta.push_cell(opcode, F::from_u128(inst.opcode())).unwrap();
+            meta.push_cell(a_type, F::from(inst.a().immediate().is_some()))
+                .unwrap();
+            meta.push_cell(
+                ri,
+                F::from_u128(inst.ri().map(|ri| ri.0).unwrap_or_default() as _),
+            )
+            .unwrap();
+            meta.push_cell(
+                rj,
+                F::from_u128(inst.rj().map(|rj| rj.0).unwrap_or_default() as _),
+            )
+            .unwrap();
             meta.push_cell(
                 immediate,
                 F::from_u128(inst.a().immediate().unwrap_or_default().into()),

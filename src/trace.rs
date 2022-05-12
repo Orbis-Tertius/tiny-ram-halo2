@@ -434,7 +434,7 @@ impl Display for Instruction {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum ImmediateOrRegName {
     Immediate(Word),
     RegName(RegName),
