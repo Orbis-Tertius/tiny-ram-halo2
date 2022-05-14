@@ -1162,6 +1162,7 @@ name = "tiny-ram-halo2"
 version = "0.1.0"
 dependencies = [
  "halo2_proofs",
+ "lazy_static",
  "pasta_curves 0.3.0",
  "plotters",
  "proptest",

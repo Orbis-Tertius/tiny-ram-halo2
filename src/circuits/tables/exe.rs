@@ -3,12 +3,16 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+    pasta::Fp,
+    plonk::{
+        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
+    },
     poly::Rotation,
 };
 
 use crate::{
     circuits::and::AndChip,
+    leak_once,
     trace::{
         ImmediateOrRegName, Instruction, LoadW, RegName, Registers, Step, StoreW,
         Trace,
@@ -16,7 +20,10 @@ use crate::{
 };
 
 use super::{
-    aux::{Out, SelectiorsA, SelectiorsB, TempVarSelectors, TempVarSelectorsRow},
+    aux::{
+        Out, SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
+        TempVarSelectorsRow,
+    },
     even_bits::{EvenBitsChip, EvenBitsConfig},
 };
 
@@ -61,25 +68,69 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
+    fn pc_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        pc_next: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.pc", temp_var_name)), |meta| {
+            let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+            let pc = meta.query_advice(self.pc, Rotation::cur());
+            let t_var = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * sa_pc_next * (pc - t_var)]
+        });
+    }
+
+    fn pc_gate_plus_one<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        pc_next: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.pc+1", temp_var_name)), |meta| {
+            let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+            let pc = meta.query_advice(self.pc, Rotation::cur());
+            let t_var = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![
+                table_max_len
+                    * sa_pc_next
+                    * ((pc + Expression::Constant(F::one())) - t_var),
+            ]
+        });
+    }
+
     fn pc_next_gate<F: FieldExt>(
         self,
         meta: &mut ConstraintSystem<F>,
         pc_next: Column<Advice>,
         temp_var: Column<Advice>,
+        temp_var_name: &str,
     ) {
-        meta.create_gate("tv[a][pc_next]", |meta| {
-            let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
-            let pc_next = meta.query_advice(self.pc, Rotation::next());
-            let t_var = meta.query_advice(temp_var, Rotation::cur());
+        meta.create_gate(
+            leak_once(format!("tv.{}.pc_next", temp_var_name)),
+            |meta| {
+                let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+                let pc_next = meta.query_advice(self.pc, Rotation::next());
+                let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-            // We disable this gate on the last row of the Exe trace.
-            // This is fine since the last row must contain Answer 0.
-            // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
-            let time_next = meta.query_advice(self.time, Rotation::next());
-            let exe_len = meta.query_selector(self.exe_len);
+                // We disable this gate on the last row of the Exe trace.
+                // This is fine since the last row must contain Answer 0.
+                // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
+                let time_next = meta.query_advice(self.time, Rotation::next());
+                let exe_len = meta.query_selector(self.exe_len);
 
-            vec![exe_len * time_next * sa_pc_next * (pc_next - t_var)]
-        });
+                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var)]
+            },
+        );
     }
 
     fn reg_gate<F: FieldExt>(
@@ -87,17 +138,21 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
         meta: &mut ConstraintSystem<F>,
         reg_sel: Registers<REG_COUNT, Column<Advice>>,
         temp_var: Column<Advice>,
+        temp_var_name: &str,
     ) {
         for (i, s_reg) in reg_sel.0.into_iter().enumerate() {
-            meta.create_gate("tv[a][reg][i]", |meta| {
-                let s_reg = meta.query_advice(s_reg, Rotation::cur());
-                let reg = meta.query_advice(self.reg[i], Rotation::cur());
-                let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+            meta.create_gate(
+                leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
+                |meta| {
+                    let s_reg = meta.query_advice(s_reg, Rotation::cur());
+                    let reg = meta.query_advice(self.reg[i], Rotation::cur());
+                    let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                let table_max_len = meta.query_selector(self.table_max_len);
+                    let table_max_len = meta.query_selector(self.table_max_len);
 
-                vec![table_max_len * s_reg * (reg - t_var_a)]
-            });
+                    vec![table_max_len * s_reg * (reg - t_var_a)]
+                },
+            );
         }
     }
 
@@ -106,18 +161,22 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
         meta: &mut ConstraintSystem<F>,
         reg_next: Registers<REG_COUNT, Column<Advice>>,
         temp_var: Column<Advice>,
+        temp_var_name: &str,
     ) {
         for (i, s_reg_next) in reg_next.0.into_iter().enumerate() {
-            meta.create_gate("tv[a][reg][i]", |meta| {
-                let s_reg = meta.query_advice(s_reg_next, Rotation::cur());
-                let reg_next = meta.query_advice(self.reg[i], Rotation::next());
-                let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+            meta.create_gate(
+                leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
+                |meta| {
+                    let s_reg = meta.query_advice(s_reg_next, Rotation::cur());
+                    let reg_next = meta.query_advice(self.reg[i], Rotation::next());
+                    let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                let time_next = meta.query_advice(self.time, Rotation::next());
-                let exe_len = meta.query_selector(self.exe_len);
+                    let time_next = meta.query_advice(self.time, Rotation::next());
+                    let exe_len = meta.query_selector(self.exe_len);
 
-                vec![exe_len * time_next * s_reg * (reg_next - t_var_a)]
-            });
+                    vec![exe_len * time_next * s_reg * (reg_next - t_var_a)]
+                },
+            );
         }
     }
 
@@ -126,8 +185,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
         meta: &mut ConstraintSystem<F>,
         immediate_sel: Column<Advice>,
         temp_var: Column<Advice>,
+        temp_var_name: &str,
     ) {
-        meta.create_gate("tv[a][a]", |meta| {
+        meta.create_gate(leak_once(format!("tv.{}.a", temp_var_name)), |meta| {
             let s_immediate = meta.query_advice(immediate_sel, Rotation::cur());
             let immediate = meta.query_advice(self.immediate, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
@@ -143,8 +203,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
         meta: &mut ConstraintSystem<F>,
         vaddr_sel: Column<Advice>,
         temp_var: Column<Advice>,
+        temp_var_name: &str,
     ) {
-        meta.create_gate("tv[a][vaddr]", |meta| {
+        meta.create_gate(leak_once(format!("tv.{}.vaddr", temp_var_name)), |meta| {
             let s_vaddr = meta.query_advice(vaddr_sel, Rotation::cur());
             let value = meta.query_advice(self.value, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
@@ -153,6 +214,68 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
 
             vec![table_max_len * s_vaddr * (value - t_var_a)]
         });
+    }
+
+    fn one_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        one_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.one", temp_var_name)), |meta| {
+            let s_one = meta.query_advice(one_sel, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_one * (Expression::Constant(F::one()) - t_var_a)]
+        });
+    }
+
+    fn zero_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        one_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.zero", temp_var_name)), |meta| {
+            let s_zero = meta.query_advice(one_sel, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![
+                table_max_len * s_zero * (Expression::Constant(F::zero()) - t_var_a),
+            ]
+        });
+    }
+
+    fn max_word_gate<F: FieldExt>(
+        self,
+        meta: &mut ConstraintSystem<F>,
+        one_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(
+            leak_once(format!("tv.{}.max_word", temp_var_name)),
+            |meta| {
+                let s_max_word = meta.query_advice(one_sel, Rotation::cur());
+                let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+                let table_max_len = meta.query_selector(self.table_max_len);
+
+                vec![
+                    table_max_len
+                        * s_max_word
+                        * (Expression::Constant(F::from_u128(
+                            2u128.pow(WORD_BITS) - 1,
+                        )) - t_var_a),
+                ]
+            },
+        );
     }
 }
 
@@ -246,32 +369,72 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 non_det: _,
             } = config.temp_var_selectors.a;
 
-            config.pc_next_gate(meta, pc_next, config.a);
-            config.reg_gate(meta, reg, config.a);
-            config.reg_next_gate(meta, reg_next, config.a);
-            config.immediate_gate(meta, a, config.a);
-            config.vaddr_gate(meta, v_addr, config.a);
+            config.pc_next_gate(meta, pc_next, config.a, "a");
+            config.reg_gate(meta, reg, config.a, "a");
+            config.reg_next_gate(meta, reg_next, config.a, "a");
+            config.immediate_gate(meta, a, config.a, "a");
+            config.vaddr_gate(meta, v_addr, config.a, "a");
 
             // TODO use a lookup to check non_det is a valid word.
         }
 
         {
-            // let SelectiorsB {
-            //     pc_next,
-            //     reg,
-            //     reg_next,
-            //     a,
-            //     pc,
-            //     pc_plus_one,
-            //     temp_var_b,
-            //     one,
-            //     max_word,
-            // } = config.temp_var_selectors.b;
+            let SelectiorsB {
+                pc,
+                pc_next,
+                pc_plus_one,
+                reg,
+                reg_next,
+                a,
+                non_det,
+                max_word,
+            } = config.temp_var_selectors.b;
 
-            // config.pc_next_gate(meta, pc_next, config.a);
-            // config.reg_gate(meta, reg, config.a);
-            // config.reg_next_gate(meta, reg_next, config.a);
-            // config.immediate_gate(meta, a, config.a);
+            config.pc_gate(meta, pc, config.b, "b");
+            config.pc_next_gate(meta, pc_next, config.b, "b");
+            config.pc_gate_plus_one(meta, pc_plus_one, config.b, "b");
+            config.reg_gate(meta, reg, config.b, "b");
+            config.reg_next_gate(meta, reg_next, config.b, "b");
+            config.immediate_gate(meta, a, config.b, "b");
+            config.max_word_gate(meta, max_word, config.b, "b");
+
+            // TODO use a lookup to check non_det is a valid word.
+        }
+
+        {
+            let SelectiorsC {
+                reg,
+                reg_next,
+                a,
+                non_det,
+                zero,
+            } = config.temp_var_selectors.c;
+
+            config.reg_gate(meta, reg, config.c, "c");
+            config.reg_next_gate(meta, reg_next, config.c, "c");
+            config.immediate_gate(meta, a, config.c, "c");
+            config.zero_gate(meta, zero, config.c, "c");
+
+            // TODO use a lookup to check non_det is a valid word.
+        }
+
+        {
+            let SelectiorsD {
+                pc,
+                reg,
+                reg_next,
+                a,
+                non_det,
+                zero,
+                one,
+            } = config.temp_var_selectors.d;
+
+            config.pc_gate(meta, pc, config.d, "d");
+            config.reg_gate(meta, reg, config.d, "d");
+            config.reg_next_gate(meta, reg_next, config.d, "d");
+            config.immediate_gate(meta, a, config.d, "d");
+            config.zero_gate(meta, zero, config.d, "d");
+            config.one_gate(meta, one, config.d, "d");
 
             // TODO use a lookup to check non_det is a valid word.
         }

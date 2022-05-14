@@ -661,7 +661,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                 }
                 _ => panic!("Unhandled temp var a case"),
             },
-            SelectionB::MaxWord => todo!(),
+            SelectionB::MaxWord => (2u64.pow(WORD_BITS) - 1) as u32,
         };
 
         let tc = match self.c {
@@ -836,10 +836,9 @@ pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
 
     pub a: C,
 
-    /// Selects the temporary var associated with this selection vector.
-    pub temp_var_b: C,
+    /// "non-deterministic advice"
+    pub non_det: C,
 
-    pub one: C,
     pub max_word: C,
 }
 
@@ -856,8 +855,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             a: meta.new_column(),
-            temp_var_b: meta.new_column(),
-            one: meta.new_column(),
+            non_det: meta.new_column(),
             max_word: meta.new_column(),
         }
     }
@@ -872,22 +870,18 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
-            temp_var_b: false,
-            one: false,
+            non_det: false,
             max_word: false,
         };
         match s {
             SelectionB::Pc => r.pc = true,
             SelectionB::PcN => r.pc_next = true,
-            SelectionB::PcPlusOne => {
-                r.pc = true;
-                r.one = true;
-            }
+            SelectionB::PcPlusOne => r.pc_plus_one = true,
             SelectionB::Reg(i) => r.reg[i] = true,
             SelectionB::RegN(i) => r.reg_next[i] = true,
             SelectionB::A(ImmediateOrRegName::Immediate(_)) => r.a = true,
             SelectionB::A(ImmediateOrRegName::RegName(i)) => r.reg[i] = true,
-            SelectionB::TempVarB => r.temp_var_b = true,
+            SelectionB::TempVarB => r.non_det = true,
             SelectionB::MaxWord => r.max_word = true,
         };
         r
@@ -907,9 +901,8 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             reg,
             reg_next,
             a,
-            temp_var_b,
-            one,
-            max_word: max,
+            non_det,
+            max_word,
         } = self;
 
         region.push_cell(pc, vals.pc.into()).unwrap();
@@ -926,11 +919,8 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
         }
 
         region.push_cell(a, vals.a.into()).unwrap();
-        region.push_cell(one, vals.one.into()).unwrap();
-        region.push_cell(max, vals.max_word.into()).unwrap();
-        region
-            .push_cell(temp_var_b, vals.temp_var_b.into())
-            .unwrap();
+        region.push_cell(max_word, vals.max_word.into()).unwrap();
+        region.push_cell(non_det, vals.non_det.into()).unwrap();
     }
 }
 
