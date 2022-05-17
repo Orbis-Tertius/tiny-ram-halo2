@@ -168,10 +168,7 @@ pub struct ProgCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     for ProgCircuit<WORD_BITS, REG_COUNT>
 {
-    type Config = (
-        ProgConfig<WORD_BITS, REG_COUNT, Column<Instance>>,
-        EvenBitsConfig,
-    );
+    type Config = ProgConfig<WORD_BITS, REG_COUNT, Column<Instance>>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -182,12 +179,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         // We create the two advice columns that AndChip uses for I/O.
         let advice = [meta.advice_column(), meta.advice_column()];
 
-        (
-            ProgChip::<F, WORD_BITS, REG_COUNT>::new_columns::<Column<Instance>, _>(
-                meta,
-            ),
-            EvenBitsChip::<F, WORD_BITS>::configure(meta, advice),
-        )
+        ProgChip::<F, WORD_BITS, REG_COUNT>::new_columns::<Column<Instance>, _>(meta)
     }
 
     fn synthesize(
@@ -218,7 +210,7 @@ mod tests {
     use halo2_proofs::pasta::Fp;
 
     use crate::{
-        circuits::tables::prog::{ProgChip, ProgCircuit, ProgConfig},
+        circuits::tables::prog::{ProgChip, ProgCircuit},
         trace::*,
     };
 

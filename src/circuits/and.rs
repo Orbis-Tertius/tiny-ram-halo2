@@ -255,7 +255,7 @@ pub struct AndCircuit<F: FieldExt, const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
-    type Config = (AndConfig, EvenBitsConfig, Column<Instance>);
+    type Config = (AndConfig, EvenBitsConfig<WORD_BITS>, Column<Instance>);
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {

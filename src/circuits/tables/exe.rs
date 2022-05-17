@@ -3,7 +3,6 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    pasta::Fp,
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
     },
@@ -11,12 +10,8 @@ use halo2_proofs::{
 };
 
 use crate::{
-    circuits::and::AndChip,
     leak_once,
-    trace::{
-        ImmediateOrRegName, Instruction, LoadW, RegName, Registers, Step, StoreW,
-        Trace,
-    },
+    trace::{Registers, Trace},
 };
 
 use super::{
@@ -639,7 +634,7 @@ pub struct ExeCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     for ExeCircuit<WORD_BITS, REG_COUNT>
 {
-    type Config = (ExeConfig<WORD_BITS, REG_COUNT>, EvenBitsConfig);
+    type Config = ExeConfig<WORD_BITS, REG_COUNT>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -647,13 +642,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        // We create the two advice columns that AndChip uses for I/O.
-        let advice = [meta.advice_column(), meta.advice_column()];
-
-        (
-            ExeChip::<F, WORD_BITS, REG_COUNT>::configure(meta),
-            EvenBitsChip::<F, WORD_BITS>::configure(meta, advice),
-        )
+        ExeChip::<F, WORD_BITS, REG_COUNT>::configure(meta)
     }
 
     fn synthesize(
@@ -661,9 +650,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let even_bits_chip = EvenBitsChip::<F, WORD_BITS>::construct(config.1);
-        even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
-        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
+        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config);
 
         if let Some(trace) = &self.trace {
             exe_chip
