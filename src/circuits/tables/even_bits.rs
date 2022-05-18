@@ -48,6 +48,10 @@ impl<W> Deref for OddBits<W> {
     }
 }
 
+pub trait HasEvenBits<const WORD_BITS: u32> {
+    fn even_bits(&self) -> EvenBitsTable<WORD_BITS>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EvenBitsTable<const WORD_BITS: u32>(TableColumn);
 
@@ -79,35 +83,21 @@ impl<const WORD_BITS: u32> EvenBitsTable<WORD_BITS> {
 /// during configuration, and then stored inside the chip.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EvenBitsConfig<const WORD_BITS: u32> {
-    word: Column<Advice>,
-    even: Column<Advice>,
-    odd: Column<Advice>,
-    even_bits: EvenBitsTable<WORD_BITS>,
+    pub word: Column<Advice>,
+    pub even: Column<Advice>,
+    pub odd: Column<Advice>,
+    pub even_bits: EvenBitsTable<WORD_BITS>,
 
-    s_decompose: Selector,
-}
-
-#[derive(Clone, Debug)]
-pub struct EvenBitsChip<F: FieldExt, const WORD_BITS: u32> {
-    config: EvenBitsConfig<WORD_BITS>,
-    _marker: PhantomData<F>,
-}
-
-impl<F: FieldExt, const WORD_BITS: u32> EvenBitsChip<F, WORD_BITS> {
-    pub fn construct(config: <Self as Chip<F>>::Config) -> Self {
-        Self {
-            config,
-            _marker: PhantomData,
-        }
-    }
+    pub s_table: Selector,
 }
 
 impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
+    ///
     pub fn configure<F: FieldExt>(
         meta: &mut ConstraintSystem<F>,
         word: Column<Advice>,
-        // A complex selector enabling the decomposition for a row.
-        s_decompose: Selector,
+        // A complex selector denoting the extent in rows of the table to decompse.
+        s_table: Selector,
     ) -> Self {
         // for column in &advice {
         //     meta.enable_equality(*column);
@@ -121,20 +111,20 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             let lhs = meta.query_advice(even, Rotation::cur());
             let rhs = meta.query_advice(odd, Rotation::cur());
             let out = meta.query_advice(word, Rotation::cur());
-            let s_decompose = meta.query_selector(s_decompose);
+            let s_table = meta.query_selector(s_table);
 
-            vec![s_decompose * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
+            vec![s_table * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
         });
 
         let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_decompose);
+            let lookup = meta.query_selector(s_table);
             let a = meta.query_advice(even, Rotation::cur());
 
             vec![(lookup * a, even_bits.0)]
         });
 
         let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_decompose);
+            let lookup = meta.query_selector(s_table);
             let b = meta.query_advice(odd, Rotation::cur());
 
             vec![(lookup * b, even_bits.0)]
@@ -145,7 +135,42 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             even,
             odd,
             even_bits,
-            s_decompose,
+            s_table,
+        }
+    }
+
+    /// Assign the word's even_bits, and the word's odd bits shifted into even positions.
+    pub fn assign_decompose<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        word: F,
+        offset: usize,
+    ) -> (EvenBits<AssignedCell<F, F>>, OddBits<AssignedCell<F, F>>) {
+        let (e, o) = decompose(word);
+        let e = region
+            .assign_advice(|| "even bits", self.even, offset, || Ok(e.0))
+            .map(EvenBits)
+            .unwrap();
+
+        let o = region
+            .assign_advice(|| "odd bits", self.odd, offset, || Ok(o.0))
+            .map(OddBits)
+            .unwrap();
+        (e, o)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct EvenBitsChip<F: FieldExt, const WORD_BITS: u32> {
+    config: EvenBitsConfig<WORD_BITS>,
+    _marker: PhantomData<F>,
+}
+
+impl<F: FieldExt, const WORD_BITS: u32> EvenBitsChip<F, WORD_BITS> {
+    pub fn construct(config: <Self as Chip<F>>::Config) -> Self {
+        Self {
+            config,
+            _marker: PhantomData,
         }
     }
 }
@@ -301,9 +326,9 @@ mod mem_test {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let word = meta.advice_column();
-            let s_decompose = meta.complex_selector();
+            let s_table = meta.complex_selector();
 
-            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_decompose)
+            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_table)
         }
 
         fn synthesize(
@@ -327,10 +352,9 @@ mod mem_test {
                                 .assign_advice(|| "word", config.word, 0, || Ok(w))
                                 .unwrap()
                         });
-                        config.s_decompose.enable(&mut region, 0)?;
-                        if let Some(a) = a {
-                            let (_ae, _ao) =
-                                field_chip.decompose(region, a.clone()).unwrap();
+                        config.s_table.enable(&mut region, 0)?;
+                        if let Some(Some(word)) = a.map(|a| a.value().cloned()) {
+                            config.assign_decompose(&mut region, word, 0);
                         };
                         Ok(())
                     },
