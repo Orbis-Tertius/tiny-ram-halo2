@@ -286,55 +286,6 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
                 },
             )
             .unwrap();
-        // // Load our private values into the circuit.
-        // // index 0
-        // let a = and_chip.load_private(layouter.namespace(|| "load a"), self.a)?;
-        // // index 1
-        // let b = and_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
-
-        // // index 2
-        // let (ae, ao) = even_bits_chip
-        //     .decompose(layouter.namespace(|| "a decomposition"), a.0)?;
-
-        // // index 3
-        // let (be, bo) = even_bits_chip
-        //     .decompose(layouter.namespace(|| "b decomposition"), b.0)?;
-
-        // // index 4
-        // let e = and_chip.add(
-        //     layouter.namespace(|| "ae + be"),
-        //     Word(ae.0),
-        //     Word(be.0),
-        // )?;
-        // // index 5
-        // let o = and_chip.add(
-        //     layouter.namespace(|| "ao + be"),
-        //     Word(ao.0),
-        //     Word(bo.0),
-        // )?;
-
-        // // // index 6
-        // let (_ee, eo) = even_bits_chip
-        //     .decompose(layouter.namespace(|| "e decomposition"), e.0)?;
-
-        // // index 7
-        // let (_oe, oo) = even_bits_chip
-        //     .decompose(layouter.namespace(|| "o decomposition"), o.0)?;
-
-        // // // index 8
-        // let a_and_b = and_chip.compose(
-        //     layouter.namespace(|| "compose eo and oo"),
-        //     Word(eo.0),
-        //     Word(oo.0),
-        // )?;
-
-        // // Expose the result as a public input to the circuit.
-        // expose_public(
-        //     public_input,
-        //     layouter.namespace(|| "expose a_and_b"),
-        //     a_and_b,
-        //     0,
-        // )
         Ok(())
     }
 }
