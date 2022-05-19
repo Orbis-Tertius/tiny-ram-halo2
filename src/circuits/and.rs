@@ -1,10 +1,9 @@
-use crate::circuits::tables::even_bits::{
-    EvenBitsChip, EvenBitsConfig, EvenBitsLookup,
-};
+use crate::circuits::tables::even_bits::EvenBitsConfig;
+use halo2_proofs::circuit::Region;
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Chip, Layouter, Region, SimpleFloorPlanner},
+    circuit::{AssignedCell, Chip, Layouter, SimpleFloorPlanner},
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Error, Expression, Instance,
         Selector,
@@ -13,7 +12,9 @@ use halo2_proofs::{
 };
 use std::marker::PhantomData;
 
-#[derive(Clone, Copy, Debug)]
+use super::tables::even_bits::EvenBitsTable;
+
+#[derive(Debug, Clone, Copy)]
 pub struct AndConfig<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
@@ -43,8 +44,8 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         lhs: EvenBitsConfig<WORD_BITS>,
         rhs: EvenBitsConfig<WORD_BITS>,
         res: Column<Advice>,
-    ) {
-        let add_gate = |lhs, rhs, res| {
+    ) -> Self {
+        let add_gate = |meta: &mut ConstraintSystem<F>, lhs, rhs, res| {
             meta.create_gate("add", |meta| {
                 let lhs = meta.query_advice(lhs, Rotation::cur());
                 let rhs = meta.query_advice(rhs, Rotation::cur());
@@ -56,19 +57,24 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
             })
         };
 
+        let even_sum = meta.advice_column();
         let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
-            meta.advice_column(),
+            even_sum,
             s_table,
-        );
-        let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
-            meta,
-            meta.advice_column(),
-            s_table,
+            lhs.even_bits,
         );
 
-        add_gate(lhs.even, rhs.even, even_sum.word);
-        add_gate(lhs.odd, rhs.odd, odd_sum.word);
+        let odd_sum = meta.advice_column();
+        let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
+            meta,
+            odd_sum,
+            s_table,
+            lhs.even_bits,
+        );
+
+        add_gate(meta, lhs.even, rhs.even, even_sum.word);
+        add_gate(meta, lhs.odd, rhs.odd, odd_sum.word);
 
         // We don't need to add gates for decomposing and looking up `even_sum`, and `odd_sum`,
         // since those gates have already been added in `EvenBitsConfig::configure`.
@@ -76,7 +82,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         meta.create_gate("compose", |meta| {
             let eo = meta.query_advice(even_sum.odd, Rotation::cur());
             let oo = meta.query_advice(odd_sum.odd, Rotation::cur());
-            let res = meta.query_advice(res, Rotation::next());
+            let res = meta.query_advice(res, Rotation::cur());
             let s_table = meta.query_selector(s_table);
             let s_and = meta.query_advice(s_and, Rotation::cur());
 
@@ -84,6 +90,55 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
                 s_table * s_and * (eo + Expression::Constant(F::from(2)) * oo - res),
             ]
         });
+
+        Self {
+            s_table,
+            s_and,
+            lhs,
+            rhs,
+            even_sum,
+            odd_sum,
+            res,
+        }
+    }
+
+    pub fn assign_and<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        lhs: F,
+        rhs: F,
+        offset: usize,
+    ) -> AssignedCell<F, F> {
+        let (rhs_e, rhs_o) = self.rhs.assign_decompose(region, offset, rhs);
+        let (lhs_e, lhs_o) = self.lhs.assign_decompose(region, offset, lhs);
+
+        let even_sum = *lhs_e + *rhs_e;
+        region
+            .assign_advice(
+                || "lhs_e + rhs_e",
+                self.even_sum.word,
+                offset,
+                || Ok(even_sum),
+            )
+            .unwrap();
+        self.even_sum.assign_decompose(region, offset, even_sum);
+
+        let odd_sum = *lhs_o + *rhs_o;
+        region
+            .assign_advice(
+                || "lhs_o + rhs_o",
+                self.odd_sum.word,
+                offset,
+                || Ok(odd_sum),
+            )
+            .unwrap();
+        self.odd_sum.assign_decompose(region, offset, odd_sum);
+
+        let res = F::from_u128(lhs.get_lower_128() & rhs.get_lower_128());
+        let res = region
+            .assign_advice(|| "res", self.res, offset, || Ok(res))
+            .unwrap();
+        res
     }
 }
 
@@ -120,15 +175,6 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for AndChip<F, WORD_BITS> {
 #[derive(Clone, Debug)]
 pub struct Word<F: FieldExt>(pub AssignedCell<F, F>);
 
-fn expose_public<F: FieldExt>(
-    instance: Column<Instance>,
-    mut layouter: impl Layouter<F>,
-    num: Word<F>,
-    row: usize,
-) -> Result<(), Error> {
-    layouter.constrain_instance(num.0.cell(), instance, row)
-}
-
 /// The full circuit implementation.
 ///
 /// In this struct we store the private input variables. We use `Option<F>` because
@@ -141,11 +187,7 @@ pub struct AndCircuit<F: FieldExt, const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
-    type Config = (
-        AndConfig<WORD_BITS>,
-        EvenBitsConfig<WORD_BITS>,
-        Column<Instance>,
-    );
+    type Config = (AndConfig<WORD_BITS>, Column<Instance>);
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -153,19 +195,26 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
     }
 
     fn configure(meta: &mut ConstraintSystem<Fp>) -> Self::Config {
-        // We create the two advice columns that AndChip uses for I/O.
-        let advice = [meta.advice_column(), meta.advice_column()];
-
-        // Create a fixed column to load constants.
-        let constant = meta.fixed_column();
-
-        // We also need an instance column to store public inputs.
         let instance = meta.instance_column();
         meta.enable_equality(instance);
 
+        let s_table = meta.complex_selector();
+        let s_and = meta.advice_column();
+        let res = meta.advice_column();
+        meta.enable_equality(res);
+
+        let even_bits = EvenBitsTable::new(meta);
+
+        let lhs = meta.advice_column();
+        meta.enable_equality(lhs);
+        let lhs = EvenBitsConfig::configure(meta, lhs, s_table, even_bits);
+
+        let rhs = meta.advice_column();
+        meta.enable_equality(rhs);
+        let rhs = EvenBitsConfig::configure(meta, rhs, s_table, even_bits);
+
         (
-            AndChip::<Fp, WORD_BITS>::configure(meta, advice, constant),
-            EvenBitsChip::<Fp, WORD_BITS>::configure(meta, advice),
+            AndConfig::<WORD_BITS>::configure(meta, s_table, s_and, lhs, rhs, res),
             instance,
         )
     }
@@ -175,60 +224,118 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-        let and_chip = AndChip::<Fp, WORD_BITS>::construct(config.0);
-        let even_bits_chip = EvenBitsChip::<Fp, WORD_BITS>::construct(config.1);
-        even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
-        let public_input = config.2;
+        // This is not a great method of initializing even_bits, maybe bring back `WithEvenBits`.
+        config
+            .0
+            .lhs
+            .even_bits
+            .alloc_table(&mut layouter.namespace(|| "alloc table"))?;
 
-        // Load our private values into the circuit.
-        // index 0
-        let a = and_chip.load_private(layouter.namespace(|| "load a"), self.a)?;
-        // index 1
-        let b = and_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
+        layouter
+            .assign_region(
+                || "and",
+                |mut region| {
+                    config.0.s_table.enable(&mut region, 0).unwrap();
+                    region
+                        .assign_advice(
+                            || "s_add",
+                            config.0.s_and,
+                            0,
+                            || Ok(Fp::one()),
+                        )
+                        .unwrap();
 
-        // index 2
-        let (ae, ao) = even_bits_chip
-            .decompose(layouter.namespace(|| "a decomposition"), a.0)?;
+                    // If a or b is None then we will see the error early.
+                    if self.a.is_some() || self.b.is_some() {
+                        // load private
+                        let lhs = self.a.unwrap();
+                        let rhs = self.b.unwrap();
 
-        // index 3
-        let (be, bo) = even_bits_chip
-            .decompose(layouter.namespace(|| "b decomposition"), b.0)?;
+                        region
+                            .assign_advice(
+                                || "lhs",
+                                config.0.lhs.word,
+                                0,
+                                || Ok(lhs),
+                            )
+                            .unwrap();
+                        region
+                            .assign_advice(
+                                || "rhs",
+                                config.0.rhs.word,
+                                0,
+                                || Ok(rhs),
+                            )
+                            .unwrap();
 
-        // index 4
-        let e = and_chip.add(
-            layouter.namespace(|| "ae + be"),
-            Word(ae.0),
-            Word(be.0),
-        )?;
-        // index 5
-        let o = and_chip.add(
-            layouter.namespace(|| "ao + be"),
-            Word(ao.0),
-            Word(bo.0),
-        )?;
+                        config.0.assign_and(&mut region, lhs, rhs, 0);
+                        // load public
+                    }
 
-        // // index 6
-        let (_ee, eo) = even_bits_chip
-            .decompose(layouter.namespace(|| "e decomposition"), e.0)?;
+                    region
+                        .assign_advice_from_instance(
+                            || "res",
+                            config.1,
+                            0,
+                            config.0.res,
+                            0,
+                        )
+                        .unwrap();
 
-        // index 7
-        let (_oe, oo) = even_bits_chip
-            .decompose(layouter.namespace(|| "o decomposition"), o.0)?;
+                    Ok(())
+                },
+            )
+            .unwrap();
+        // // Load our private values into the circuit.
+        // // index 0
+        // let a = and_chip.load_private(layouter.namespace(|| "load a"), self.a)?;
+        // // index 1
+        // let b = and_chip.load_private(layouter.namespace(|| "load b"), self.b)?;
 
-        // // index 8
-        let a_and_b = and_chip.compose(
-            layouter.namespace(|| "compose eo and oo"),
-            Word(eo.0),
-            Word(oo.0),
-        )?;
+        // // index 2
+        // let (ae, ao) = even_bits_chip
+        //     .decompose(layouter.namespace(|| "a decomposition"), a.0)?;
 
-        // Expose the result as a public input to the circuit.
-        expose_public(
-            public_input,
-            layouter.namespace(|| "expose a_and_b"),
-            a_and_b,
-            0,
-        )
+        // // index 3
+        // let (be, bo) = even_bits_chip
+        //     .decompose(layouter.namespace(|| "b decomposition"), b.0)?;
+
+        // // index 4
+        // let e = and_chip.add(
+        //     layouter.namespace(|| "ae + be"),
+        //     Word(ae.0),
+        //     Word(be.0),
+        // )?;
+        // // index 5
+        // let o = and_chip.add(
+        //     layouter.namespace(|| "ao + be"),
+        //     Word(ao.0),
+        //     Word(bo.0),
+        // )?;
+
+        // // // index 6
+        // let (_ee, eo) = even_bits_chip
+        //     .decompose(layouter.namespace(|| "e decomposition"), e.0)?;
+
+        // // index 7
+        // let (_oe, oo) = even_bits_chip
+        //     .decompose(layouter.namespace(|| "o decomposition"), o.0)?;
+
+        // // // index 8
+        // let a_and_b = and_chip.compose(
+        //     layouter.namespace(|| "compose eo and oo"),
+        //     Word(eo.0),
+        //     Word(oo.0),
+        // )?;
+
+        // // Expose the result as a public input to the circuit.
+        // expose_public(
+        //     public_input,
+        //     layouter.namespace(|| "expose a_and_b"),
+        //     a_and_b,
+        //     0,
+        // )
+        Ok(())
     }
 }
 

@@ -56,6 +56,10 @@ pub trait HasEvenBits<const WORD_BITS: u32> {
 pub struct EvenBitsTable<const WORD_BITS: u32>(TableColumn);
 
 impl<const WORD_BITS: u32> EvenBitsTable<WORD_BITS> {
+    pub fn new<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+        Self(meta.lookup_table_column())
+    }
+
     // Allocates all even bits in a a table for the word size WORD_BITS.
     // `2^(WORD_BITS/2)` rows of the constraint system.
     pub fn alloc_table<F: FieldExt>(
@@ -98,12 +102,8 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
         word: Column<Advice>,
         // A complex selector denoting the extent in rows of the table to decompse.
         s_table: Selector,
+        even_bits: EvenBitsTable<WORD_BITS>,
     ) -> Self {
-        // for column in &advice {
-        //     meta.enable_equality(*column);
-        // }
-
-        let even_bits = EvenBitsTable(meta.lookup_table_column());
         let even = meta.advice_column();
         let odd = meta.advice_column();
 
@@ -143,16 +143,16 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     pub fn assign_decompose<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        word: F,
         offset: usize,
-    ) -> (EvenBits<AssignedCell<F, F>>, OddBits<AssignedCell<F, F>>) {
+        word: F,
+    ) -> (EvenBits<F>, OddBits<F>) {
         let (e, o) = decompose(word);
-        let e = region
+        let _ = region
             .assign_advice(|| "even bits", self.even, offset, || Ok(e.0))
             .map(EvenBits)
             .unwrap();
 
-        let o = region
+        let _ = region
             .assign_advice(|| "odd bits", self.odd, offset, || Ok(o.0))
             .map(OddBits)
             .unwrap();
@@ -327,8 +327,9 @@ mod mem_test {
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let word = meta.advice_column();
             let s_table = meta.complex_selector();
+            let even_bits = EvenBitsTable::new(meta);
 
-            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_table)
+            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_table, even_bits)
         }
 
         fn synthesize(
@@ -354,7 +355,7 @@ mod mem_test {
                         });
                         config.s_table.enable(&mut region, 0)?;
                         if let Some(Some(word)) = a.map(|a| a.value().cloned()) {
-                            config.assign_decompose(&mut region, word, 0);
+                            config.assign_decompose(&mut region, 0, word);
                         };
                         Ok(())
                     },
