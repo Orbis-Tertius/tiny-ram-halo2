@@ -52,6 +52,29 @@ pub trait HasEvenBits<const WORD_BITS: u32> {
     fn even_bits(&self) -> EvenBitsTable<WORD_BITS>;
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct WithEvenBits<T, const WORD_BITS: u32>(T, EvenBitsTable<WORD_BITS>);
+
+impl<T, const WORD_BITS: u32> WithEvenBits<T, WORD_BITS> {
+    pub fn configure<F: FieldExt>(meta: &mut ConstraintSystem<F>, t: T) -> Self {
+        WithEvenBits(t, EvenBitsTable(meta.lookup_table_column()))
+    }
+}
+
+impl<T, const WORD_BITS: u32> Deref for WithEvenBits<T, WORD_BITS> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<T, const WORD_BITS: u32> HasEvenBits<WORD_BITS> for WithEvenBits<T, WORD_BITS> {
+    fn even_bits(&self) -> EvenBitsTable<WORD_BITS> {
+        self.1
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EvenBitsTable<const WORD_BITS: u32>(TableColumn);
 
@@ -86,7 +109,6 @@ pub struct EvenBitsConfig<const WORD_BITS: u32> {
     pub word: Column<Advice>,
     pub even: Column<Advice>,
     pub odd: Column<Advice>,
-    pub even_bits: EvenBitsTable<WORD_BITS>,
 
     pub s_table: Selector,
 }
@@ -134,7 +156,6 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             word,
             even,
             odd,
-            even_bits,
             s_table,
         }
     }
@@ -317,7 +338,7 @@ mod mem_test {
         for EvenBitsTestCircuit<F, WORD_BITS>
     {
         // Since we are using a single chip for everything, we can just reuse its config.
-        type Config = EvenBitsConfig<WORD_BITS>;
+        type Config = WithEvenBits<EvenBitsConfig<WORD_BITS>, WORD_BITS>;
         type FloorPlanner = SimpleFloorPlanner;
 
         fn without_witnesses(&self) -> Self {
@@ -328,7 +349,7 @@ mod mem_test {
             let word = meta.advice_column();
             let s_table = meta.complex_selector();
 
-            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_table)
+            WithEvenBits::configure(meta, EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_table))
         }
 
         fn synthesize(
@@ -337,10 +358,10 @@ mod mem_test {
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
             // let field_chip = AndChip::<F>::construct(config);
-            let field_chip = EvenBitsChip::<F, WORD_BITS>::construct(config);
+            let field_chip = EvenBitsChip::<F, WORD_BITS>::construct(*config);
             field_chip
-                .config
-                .even_bits
+                .config()
+                .even_bits()
                 .alloc_table(&mut layouter.namespace(|| "alloc table"))?;
 
             layouter

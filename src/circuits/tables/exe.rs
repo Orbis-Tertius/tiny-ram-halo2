@@ -19,7 +19,7 @@ use super::{
         Out, SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
         TempVarSelectorsRow,
     },
-    even_bits::{EvenBitsChip, EvenBitsConfig},
+    even_bits::{EvenBitsConfig, WithEvenBits},
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -334,6 +334,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let table_max_len = meta.selector();
             let exe_len = meta.selector();
 
+
             ExeConfig {
                 time,
                 pc,
@@ -634,7 +635,7 @@ pub struct ExeCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     for ExeCircuit<WORD_BITS, REG_COUNT>
 {
-    type Config = ExeConfig<WORD_BITS, REG_COUNT>;
+    type Config = WithEvenBits<ExeConfig<WORD_BITS, REG_COUNT>, WORD_BITS>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -642,7 +643,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        ExeChip::<F, WORD_BITS, REG_COUNT>::configure(meta)
+        WithEvenBits::configure(meta, ExeChip::<F, WORD_BITS, REG_COUNT>::configure(meta))
     }
 
     fn synthesize(
@@ -650,7 +651,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config);
+        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(*config);
 
         if let Some(trace) = &self.trace {
             exe_chip
