@@ -10,16 +10,17 @@ use halo2_proofs::{
 };
 
 use crate::{
+    circuits::and::AndConfig,
     leak_once,
     trace::{Registers, Trace},
 };
 
 use super::{
     aux::{
-        Out, SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
+        SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
         TempVarSelectorsRow,
     },
-    even_bits::{EvenBitsChip, EvenBitsConfig},
+    even_bits::{EvenBitsConfig, EvenBitsTable},
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -52,7 +53,8 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     c: Column<Advice>,
     d: Column<Advice>,
 
-    out: Out<Column<Advice>>,
+    a_decompose: EvenBitsConfig<WORD_BITS>,
+    b_decompose: EvenBitsConfig<WORD_BITS>,
 
     // t_link: Column<Advice>,
     // v_link: Column<Advice>,
@@ -60,6 +62,9 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // s: Column<Advice>,
     // l: Column<Advice>,
     temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+
+    even_bits: EvenBitsTable<WORD_BITS>,
+    and: AndConfig<WORD_BITS>,
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
@@ -328,11 +333,25 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let flag = meta.advice_column();
             let address = meta.advice_column();
             let value = meta.advice_column();
-            let out = Out::new(|| meta.advice_column());
             let temp_var_selectors =
                 TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
-            let table_max_len = meta.selector();
+            let table_max_len = meta.complex_selector();
             let exe_len = meta.selector();
+
+            let even_bits = EvenBitsTable::new(meta);
+
+            let a_decompose =
+                EvenBitsConfig::configure(meta, a, table_max_len, even_bits);
+            let b_decompose =
+                EvenBitsConfig::configure(meta, b, table_max_len, even_bits);
+            let and = AndConfig::configure(
+                meta,
+                table_max_len,
+                temp_var_selectors.out.and,
+                a_decompose,
+                b_decompose,
+                c,
+            );
 
             ExeConfig {
                 time,
@@ -347,10 +366,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 b,
                 c,
                 d,
-                out,
+                a_decompose,
+                b_decompose,
                 temp_var_selectors,
                 table_max_len,
                 exe_len,
+                even_bits,
+                and,
             }
         };
 
@@ -442,6 +464,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         trace: &Trace<WORD_BITS, REG_COUNT>,
     ) -> Result<(), Error> {
         let ExeConfig {
+            table_max_len,
+            exe_len,
             time,
             pc,
             opcode,
@@ -454,10 +478,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             b,
             c,
             d,
-            out,
+            a_decompose,
+            b_decompose,
             temp_var_selectors,
-            table_max_len,
-            exe_len,
+            even_bits,
+            and,
         } = self.config;
 
         layouter
@@ -472,12 +497,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         exe_len.enable(&mut region, i)?;
                     }
 
-                    for (i, step) in trace.exe.iter().enumerate() {
+                    for (offset, step) in trace.exe.iter().enumerate() {
                         region
                             .assign_advice(
                                 || format!("time: {}", step.time.0),
                                 time,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(step.time.0 as u128)),
                             )
                             .unwrap();
@@ -486,7 +511,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("pc: {}", step.pc.0),
                                 pc,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(step.pc.0 as u128)),
                             )
                             .unwrap();
@@ -495,7 +520,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("opcode: {}", step.instruction.opcode()),
                                 opcode,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(step.instruction.opcode())),
                             )
                             .unwrap();
@@ -510,7 +535,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("immediate: {}", immediate_v),
                                 immediate,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(immediate_v)),
                             )
                             .unwrap();
@@ -522,7 +547,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 .assign_advice(
                                     || format!("r{}: {}", rn, v.0),
                                     *reg,
-                                    i,
+                                    offset,
                                     || Ok(F::from_u128(v.into())),
                                 )
                                 .unwrap();
@@ -532,7 +557,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("flag: {}", step.flag),
                                 flag,
-                                i,
+                                offset,
                                 || Ok(F::from(step.flag)),
                             )
                             .unwrap();
@@ -545,45 +570,57 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 );
 
                             temp_var_selectors.push_cells(
-                                &mut (&mut region, i),
+                                &mut (&mut region, offset),
                                 dbg!(temp_var_selectors_row),
                             );
 
                             let (ta, tb, tc, td) = temp_var_selectors_row
-                                .push_temp_var_vals::<F, WORD_BITS>(&trace.exe, i);
+                                .push_temp_var_vals::<F, WORD_BITS>(
+                                    &trace.exe, offset,
+                                );
+
+                            let ta = F::from_u128(ta as u128);
+                            let tb = F::from_u128(tb as u128);
+                            let tc = F::from_u128(tc as u128);
+                            let td = F::from_u128(td as u128);
 
                             region
                                 .assign_advice(
-                                    || format!("a: {}", ta),
+                                    || format!("a: {:?}", ta),
                                     a,
-                                    i,
-                                    || Ok(F::from_u128(ta as u128)),
+                                    offset,
+                                    || Ok(ta),
                                 )
                                 .unwrap();
                             region
                                 .assign_advice(
-                                    || format!("b: {}", tb),
+                                    || format!("b: {:?}", tb),
                                     b,
-                                    i,
-                                    || Ok(F::from_u128(tb as u128)),
+                                    offset,
+                                    || Ok(tb),
                                 )
                                 .unwrap();
                             region
                                 .assign_advice(
-                                    || format!("c: {}", tc),
+                                    || format!("c: {:?}", tc),
                                     c,
-                                    i,
-                                    || Ok(F::from_u128(tc as u128)),
+                                    offset,
+                                    || Ok(tc),
                                 )
                                 .unwrap();
                             region
                                 .assign_advice(
-                                    || format!("d: {}", td),
+                                    || format!("d: {:?}", td),
                                     d,
-                                    i,
-                                    || Ok(F::from_u128(td as u128)),
+                                    offset,
+                                    || Ok(td),
                                 )
                                 .unwrap();
+
+                            a_decompose.assign_decompose(&mut region, offset, ta);
+                            b_decompose.assign_decompose(&mut region, offset, tb);
+
+                            and.assign_and(&mut region, ta, tb, offset);
                         }
 
                         {
@@ -602,7 +639,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 .assign_advice(
                                     || format!("vaddr: {}", vaddr),
                                     value,
-                                    i,
+                                    offset,
                                     || Ok(F::from_u128(vaddr)),
                                 )
                                 .unwrap();
