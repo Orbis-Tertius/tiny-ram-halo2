@@ -765,15 +765,15 @@ in
     };
   });
   
-  "git+https://github.com/zcash/halo2.git".halo2_proofs."0.1.0-beta.4" = overridableMkRustCrate (profileName: rec {
+  "git+https://github.com/zcash/halo2.git".halo2_proofs."0.1.0" = overridableMkRustCrate (profileName: rec {
     name = "halo2_proofs";
-    version = "0.1.0-beta.4";
+    version = "0.1.0";
     registry = "git+https://github.com/zcash/halo2.git";
     src = fetchCrateGit {
       url = https://github.com/zcash/halo2.git;
       name = "halo2_proofs";
-      version = "0.1.0-beta.4";
-      rev = "72ff677776504c288f4927a6ce8d3c273ebd588d";};
+      version = "0.1.0";
+      rev = "8075b216e850035cde940c96eb93bf285254ee2e";};
     features = builtins.concatLists [
       [ "dev-graph" ]
       [ "plotters" ]
@@ -1649,7 +1649,7 @@ in
     registry = "unknown";
     src = fetchCrateLocal workspaceSrc;
     dependencies = {
-      halo2_proofs = rustPackages."git+https://github.com/zcash/halo2.git".halo2_proofs."0.1.0-beta.4" { inherit profileName; };
+      halo2_proofs = rustPackages."git+https://github.com/zcash/halo2.git".halo2_proofs."0.1.0" { inherit profileName; };
       lazy_static = rustPackages."registry+https://github.com/rust-lang/crates.io-index".lazy_static."1.4.0" { inherit profileName; };
       pasta_curves = rustPackages."registry+https://github.com/rust-lang/crates.io-index".pasta_curves."0.3.0" { inherit profileName; };
       plotters = rustPackages."registry+https://github.com/rust-lang/crates.io-index".plotters."0.3.1" { inherit profileName; };
