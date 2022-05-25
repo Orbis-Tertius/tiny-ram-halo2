@@ -628,7 +628,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             match step.instruction {
                                 crate::trace::Instruction::And(_) => {
-                                    // and.assign_and(&mut region, ta, tb, offset);
+                                    and.assign_and(&mut region, ta, tb, offset);
                                 }
                                 // TODO
                                 _ => {}
@@ -729,11 +729,6 @@ mod tests {
             Instruction::LoadW(LoadW {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(0)),
-            }),
-            Instruction::And(And {
-                ri: RegName(1),
-                rj: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(0b1)),
             }),
             Instruction::And(And {
                 ri: RegName(1),

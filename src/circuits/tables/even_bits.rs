@@ -97,8 +97,7 @@ pub struct EvenBitsConfig<const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
-    ///
-    pub fn configure<F: FieldExt>(
+    pub fn new<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
         s_even_bits: Column<Advice>,
@@ -108,40 +107,68 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     ) -> Self {
         let even = meta.new_column();
         let odd = meta.new_column();
-
-        let meta = meta.cs();
-
-        meta.create_gate("decompose", |meta| {
-            let lhs = meta.query_advice(even, Rotation::cur());
-            let rhs = meta.query_advice(odd, Rotation::cur());
-            let out = meta.query_advice(word, Rotation::cur());
-            let s_table = meta.query_selector(s_table);
-
-            vec![s_table * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
-        });
-
-        let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_table);
-            let a = meta.query_advice(even, Rotation::cur());
-
-            vec![(lookup * a, even_bits.0)]
-        });
-
-        let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_table);
-            let b = meta.query_advice(odd, Rotation::cur());
-
-            vec![(lookup * b, even_bits.0)]
-        });
-
-        EvenBitsConfig {
+        Self {
             word,
             even,
             odd,
             even_bits,
-            s_table,
             s_even_bits,
+            s_table,
         }
+    }
+
+    pub fn configure<F: FieldExt>(
+        meta: &mut impl ConstraintSys<F, Column<Advice>>,
+        word: Column<Advice>,
+        s_even_bits: Column<Advice>,
+        // A complex selector denoting the extent in rows of the table to decompse.
+        s_table: Selector,
+        even_bits: EvenBitsTable<WORD_BITS>,
+    ) -> Self {
+        let conf @ Self {
+            word,
+            even,
+            odd,
+            even_bits,
+            s_even_bits,
+            s_table,
+        } = Self::new(meta, word, s_even_bits, s_table, even_bits);
+
+        let meta = meta.cs();
+
+        meta.create_gate("decompose", |meta| {
+            let s_table = meta.query_selector(s_table);
+            let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
+            let lhs = meta.query_advice(even, Rotation::cur());
+            let rhs = meta.query_advice(odd, Rotation::cur());
+            let out = meta.query_advice(word, Rotation::cur());
+
+            vec![
+                s_table
+                    * s_even_bits
+                    * (lhs + Expression::Constant(F::from(2)) * rhs - out),
+            ]
+        });
+
+        let u = meta.lookup(|meta| {
+            let lookup = meta.query_selector(s_table);
+            let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
+            let e = meta.query_advice(even, Rotation::cur());
+
+            vec![(lookup * s_even_bits * e, even_bits.0)]
+        });
+        dbg!(u);
+
+        let two = meta.lookup(|meta| {
+            let lookup = meta.query_selector(s_table);
+            let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
+            let o = meta.query_advice(odd, Rotation::cur());
+
+            vec![(lookup * s_even_bits * o, even_bits.0)]
+        });
+        dbg!(two);
+
+        conf
     }
 
     /// Assign the word's even_bits, and the word's odd bits shifted into even positions.
@@ -337,7 +364,13 @@ mod mem_test {
             let s_table = meta.complex_selector();
             let even_bits = EvenBitsTable::new(meta);
 
-            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_even_bits, s_table, even_bits)
+            EvenBitsConfig::<WORD_BITS>::configure(
+                meta,
+                word,
+                s_even_bits,
+                s_table,
+                even_bits,
+            )
         }
 
         fn synthesize(

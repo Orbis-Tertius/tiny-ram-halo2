@@ -37,7 +37,7 @@ pub struct AndConfig<const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
-    pub fn configure<F: FieldExt>(
+    pub fn new<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         even_bits: EvenBitsTable<WORD_BITS>,
         s_table: Selector,
@@ -48,7 +48,56 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         res: Column<Advice>,
     ) -> Self {
         let a = EvenBitsConfig::configure(meta, a, s_and, s_table, even_bits);
-        let b = EvenBitsConfig::configure(meta, b, s_and, s_table, even_bits);
+        let b = EvenBitsConfig::new(meta, b, s_and, s_table, even_bits);
+
+        let even_sum = meta.new_column();
+        let even_sum = EvenBitsConfig::<WORD_BITS>::new(
+            meta,
+            even_sum,
+            s_and,
+            s_table,
+            a.even_bits,
+        );
+
+        let odd_sum = meta.new_column();
+        let odd_sum = EvenBitsConfig::<WORD_BITS>::new(
+            meta,
+            odd_sum,
+            s_and,
+            s_table,
+            a.even_bits,
+        );
+
+        Self {
+            s_table,
+            s_and,
+            a,
+            b,
+            even_sum,
+            odd_sum,
+            res,
+        }
+    }
+
+    pub fn configure<F: FieldExt>(
+        meta: &mut impl ConstraintSys<F, Column<Advice>>,
+        even_bits: EvenBitsTable<WORD_BITS>,
+        s_table: Selector,
+        s_and: Column<Advice>,
+
+        a: Column<Advice>,
+        b: Column<Advice>,
+        res: Column<Advice>,
+    ) -> Self {
+        let conf @ Self {
+            s_table,
+            s_and,
+            a,
+            b,
+            even_sum,
+            odd_sum,
+            res,
+        } = Self::new(meta, even_bits, s_table, s_and, a, b, res);
 
         let add_gate = |meta: &mut ConstraintSystem<F>, lhs, rhs, res| {
             meta.create_gate("add", |meta| {
@@ -62,52 +111,23 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
             })
         };
 
-        let even_sum = meta.new_column();
-        let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
-            meta,
-            even_sum,
-            s_and,
-            s_table,
-            a.even_bits,
-        );
-
-        let odd_sum = meta.new_column();
-        let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
-            meta,
-            odd_sum,
-            s_and,
-            s_table,
-            a.even_bits,
-        );
-
         let meta = meta.cs();
         add_gate(meta, a.even, b.even, even_sum.word);
         add_gate(meta, a.odd, b.odd, odd_sum.word);
 
-        // We don't need to add gates for decomposing and looking up `even_sum`, and `odd_sum`,
-        // since those gates have already been added in `EvenBitsConfig::configure`.
-
         meta.create_gate("compose", |meta| {
+            let s_table = meta.query_selector(s_table);
+            let s_and = meta.query_advice(s_and, Rotation::cur());
             let eo = meta.query_advice(even_sum.odd, Rotation::cur());
             let oo = meta.query_advice(odd_sum.odd, Rotation::cur());
             let res = meta.query_advice(res, Rotation::cur());
-            let s_table = meta.query_selector(s_table);
-            let s_and = meta.query_advice(s_and, Rotation::cur());
 
             vec![
                 s_table * s_and * (eo + Expression::Constant(F::from(2)) * oo - res),
             ]
         });
 
-        Self {
-            s_table,
-            s_and,
-            a,
-            b,
-            even_sum,
-            odd_sum,
-            res,
-        }
+        conf
     }
 
     pub fn assign_and<F: FieldExt>(
