@@ -23,8 +23,8 @@ pub struct AndConfig<const WORD_BITS: u32> {
     /// `Out.and`
     s_and: Column<Advice>,
 
-    lhs: EvenBitsConfig<WORD_BITS>,
-    rhs: EvenBitsConfig<WORD_BITS>,
+    a: EvenBitsConfig<WORD_BITS>,
+    b: EvenBitsConfig<WORD_BITS>,
 
     /// lhs_e + rhs_e
     even_sum: EvenBitsConfig<WORD_BITS>,
@@ -39,13 +39,17 @@ pub struct AndConfig<const WORD_BITS: u32> {
 impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
+        even_bits: EvenBitsTable<WORD_BITS>,
         s_table: Selector,
         s_and: Column<Advice>,
 
-        lhs: EvenBitsConfig<WORD_BITS>,
-        rhs: EvenBitsConfig<WORD_BITS>,
+        a: Column<Advice>,
+        b: Column<Advice>,
         res: Column<Advice>,
     ) -> Self {
+        let a = EvenBitsConfig::configure(meta, a, s_and, s_table, even_bits);
+        let b = EvenBitsConfig::configure(meta, b, s_and, s_table, even_bits);
+
         let add_gate = |meta: &mut ConstraintSystem<F>, lhs, rhs, res| {
             meta.create_gate("add", |meta| {
                 let lhs = meta.query_advice(lhs, Rotation::cur());
@@ -62,21 +66,23 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             even_sum,
+            s_and,
             s_table,
-            lhs.even_bits,
+            a.even_bits,
         );
 
         let odd_sum = meta.new_column();
         let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             odd_sum,
+            s_and,
             s_table,
-            lhs.even_bits,
+            a.even_bits,
         );
 
         let meta = meta.cs();
-        add_gate(meta, lhs.even, rhs.even, even_sum.word);
-        add_gate(meta, lhs.odd, rhs.odd, odd_sum.word);
+        add_gate(meta, a.even, b.even, even_sum.word);
+        add_gate(meta, a.odd, b.odd, odd_sum.word);
 
         // We don't need to add gates for decomposing and looking up `even_sum`, and `odd_sum`,
         // since those gates have already been added in `EvenBitsConfig::configure`.
@@ -96,8 +102,8 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         Self {
             s_table,
             s_and,
-            lhs,
-            rhs,
+            a,
+            b,
             even_sum,
             odd_sum,
             res,
@@ -111,8 +117,8 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         rhs: F,
         offset: usize,
     ) -> AssignedCell<F, F> {
-        let (rhs_e, rhs_o) = self.rhs.assign_decompose(region, offset, rhs);
-        let (lhs_e, lhs_o) = self.lhs.assign_decompose(region, offset, lhs);
+        let (rhs_e, rhs_o) = self.b.assign_decompose(region, offset, rhs);
+        let (lhs_e, lhs_o) = self.a.assign_decompose(region, offset, lhs);
 
         let even_sum = *lhs_e + *rhs_e;
         region
@@ -207,16 +213,16 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
 
         let even_bits = EvenBitsTable::new(meta);
 
-        let lhs = meta.advice_column();
-        meta.enable_equality(lhs);
-        let lhs = EvenBitsConfig::configure(meta, lhs, s_table, even_bits);
+        let a = meta.advice_column();
+        meta.enable_equality(a);
 
-        let rhs = meta.advice_column();
-        meta.enable_equality(rhs);
-        let rhs = EvenBitsConfig::configure(meta, rhs, s_table, even_bits);
+        let b = meta.advice_column();
+        meta.enable_equality(b);
 
         (
-            AndConfig::<WORD_BITS>::configure(meta, s_table, s_and, lhs, rhs, res),
+            AndConfig::<WORD_BITS>::configure(
+                meta, even_bits, s_table, s_and, a, b, res,
+            ),
             instance,
         )
     }
@@ -229,7 +235,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
         // This is not a great method of initializing even_bits, maybe bring back `WithEvenBits`.
         config
             .0
-            .lhs
+            .a
             .even_bits
             .alloc_table(&mut layouter.namespace(|| "alloc table"))?;
 
@@ -254,20 +260,10 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
                         let rhs = self.b.unwrap();
 
                         region
-                            .assign_advice(
-                                || "lhs",
-                                config.0.lhs.word,
-                                0,
-                                || Ok(lhs),
-                            )
+                            .assign_advice(|| "lhs", config.0.a.word, 0, || Ok(lhs))
                             .unwrap();
                         region
-                            .assign_advice(
-                                || "rhs",
-                                config.0.rhs.word,
-                                0,
-                                || Ok(rhs),
-                            )
+                            .assign_advice(|| "rhs", config.0.b.word, 0, || Ok(rhs))
                             .unwrap();
 
                         config.0.assign_and(&mut region, lhs, rhs, 0);

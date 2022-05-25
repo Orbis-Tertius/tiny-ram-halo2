@@ -54,9 +54,6 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     c: Column<Advice>,
     d: Column<Advice>,
 
-    a_decompose: EvenBitsConfig<WORD_BITS>,
-    b_decompose: EvenBitsConfig<WORD_BITS>,
-
     // t_link: Column<Advice>,
     // v_link: Column<Advice>,
     // v_init: Column<Advice>,
@@ -66,6 +63,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
     even_bits: EvenBitsTable<WORD_BITS>,
     and: AndConfig<WORD_BITS>,
+    intermediate: Vec<Column<Advice>>,
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
@@ -338,17 +336,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let even_bits = EvenBitsTable::new(meta);
 
-            let meta = &mut TrackColumns::new(meta);
-            let a_decompose =
-                EvenBitsConfig::configure(meta, a, table_max_len, even_bits);
-            let b_decompose =
-                EvenBitsConfig::configure(meta, b, table_max_len, even_bits);
+            let mut meta = TrackColumns::new(meta);
             let and = AndConfig::configure(
-                meta,
+                &mut meta,
+                even_bits,
                 table_max_len,
                 temp_var_selectors.out.and,
-                a_decompose,
-                b_decompose,
+                a,
+                b,
                 c,
             );
 
@@ -365,13 +360,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 b,
                 c,
                 d,
-                a_decompose,
-                b_decompose,
                 temp_var_selectors,
                 table_max_len,
                 exe_len,
                 even_bits,
                 and,
+                intermediate: meta.1,
             }
         };
 
@@ -477,11 +471,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             b,
             c,
             d,
-            a_decompose,
-            b_decompose,
             temp_var_selectors,
             even_bits,
             and,
+            intermediate: _,
         } = self.config;
 
         layouter
@@ -616,10 +609,30 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 )
                                 .unwrap();
 
-                            a_decompose.assign_decompose(&mut region, offset, ta);
-                            b_decompose.assign_decompose(&mut region, offset, tb);
+                            for c in self.config.intermediate.iter() {
+                                // Zero fill all the intermediate columns.
+                                // We will reassign the ones we use.
+                                // This works around the unassigned cell error.
+                                //
+                                // A better long term fix is improving the mock prover
+                                // by using `with_selector` instead of the any `Selector` heuristic
+                                region
+                                    .assign_advice(
+                                        || "default fill",
+                                        *c,
+                                        offset,
+                                        || Ok(F::zero()),
+                                    )
+                                    .unwrap();
+                            }
 
-                            and.assign_and(&mut region, ta, tb, offset);
+                            match step.instruction {
+                                crate::trace::Instruction::And(_) => {
+                                    // and.assign_and(&mut region, ta, tb, offset);
+                                }
+                                // TODO
+                                _ => {}
+                            }
                         }
 
                         {

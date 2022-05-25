@@ -92,6 +92,7 @@ pub struct EvenBitsConfig<const WORD_BITS: u32> {
     pub odd: Column<Advice>,
     pub even_bits: EvenBitsTable<WORD_BITS>,
 
+    pub s_even_bits: Column<Advice>,
     pub s_table: Selector,
 }
 
@@ -100,6 +101,7 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
+        s_even_bits: Column<Advice>,
         // A complex selector denoting the extent in rows of the table to decompse.
         s_table: Selector,
         even_bits: EvenBitsTable<WORD_BITS>,
@@ -138,6 +140,7 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             odd,
             even_bits,
             s_table,
+            s_even_bits,
         }
     }
 
@@ -330,10 +333,11 @@ mod mem_test {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let word = meta.advice_column();
+            let s_even_bits = meta.advice_column();
             let s_table = meta.complex_selector();
             let even_bits = EvenBitsTable::new(meta);
 
-            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_table, even_bits)
+            EvenBitsConfig::<WORD_BITS>::configure(meta, word, s_even_bits, s_table, even_bits)
         }
 
         fn synthesize(
