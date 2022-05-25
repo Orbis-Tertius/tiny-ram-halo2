@@ -4,7 +4,7 @@ use halo2_proofs::{
     plonk::{Advice, Column, ConstraintSystem, Fixed, Instance},
 };
 
-pub trait NewColumn<C> {
+pub trait NewColumn<C: Copy> {
     fn new_column(&mut self) -> C;
 }
 
@@ -23,6 +23,50 @@ impl<F: FieldExt> NewColumn<Column<Instance>> for ConstraintSystem<F> {
 impl<F: FieldExt> NewColumn<Column<Fixed>> for ConstraintSystem<F> {
     fn new_column(&mut self) -> Column<Fixed> {
         self.fixed_column()
+    }
+}
+
+pub struct TrackColumns<'l, F: FieldExt, C: Copy>(
+    pub &'l mut ConstraintSystem<F>,
+    pub Vec<C>,
+);
+
+impl<'l, F: FieldExt, C: Copy> TrackColumns<'l, F, C> {
+    pub fn new(meta: &'l mut ConstraintSystem<F>) -> Self {
+        TrackColumns(meta, Vec::new())
+    }
+}
+
+impl<'l, F: FieldExt, C: Copy> NewColumn<C> for TrackColumns<'l, F, C>
+where
+    ConstraintSystem<F>: NewColumn<C>,
+{
+    fn new_column(&mut self) -> C {
+        let c = self.0.new_column();
+        self.1.push(c);
+        c
+    }
+}
+
+pub trait ConstraintSys<F: FieldExt, C: Copy>: NewColumn<C> {
+    fn cs(&mut self) -> &mut ConstraintSystem<F>;
+}
+
+impl<F: FieldExt, C: Copy> ConstraintSys<F, C> for ConstraintSystem<F>
+where
+    ConstraintSystem<F>: NewColumn<C>,
+{
+    fn cs(&mut self) -> &mut ConstraintSystem<F> {
+        self
+    }
+}
+
+impl<'l, F: FieldExt, C: Copy> ConstraintSys<F, C> for TrackColumns<'l, F, C>
+where
+    ConstraintSystem<F>: NewColumn<C>,
+{
+    fn cs(&mut self) -> &mut ConstraintSystem<F> {
+        self.0
     }
 }
 

@@ -10,6 +10,7 @@ use halo2_proofs::{
 };
 
 use crate::{
+    assign::TrackColumns,
     circuits::and::AndConfig,
     leak_once,
     trace::{Registers, Trace},
@@ -30,7 +31,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 
 /// The both constant parameters `WORD_BITS`, `REG_COUNT` will always fit in a `u8`.
 /// `u32`, and `usize`, were picked for convenience.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     table_max_len: Selector,
     /// This is redundant with 0 padded `time`.
@@ -69,7 +70,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
     fn pc_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         pc_next: Column<Advice>,
         temp_var: Column<Advice>,
@@ -87,7 +88,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn pc_gate_plus_one<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         pc_next: Column<Advice>,
         temp_var: Column<Advice>,
@@ -109,7 +110,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn pc_next_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         pc_next: Column<Advice>,
         temp_var: Column<Advice>,
@@ -134,7 +135,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn reg_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         reg_sel: Registers<REG_COUNT, Column<Advice>>,
         temp_var: Column<Advice>,
@@ -157,7 +158,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn reg_next_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         reg_next: Registers<REG_COUNT, Column<Advice>>,
         temp_var: Column<Advice>,
@@ -181,7 +182,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn immediate_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         immediate_sel: Column<Advice>,
         temp_var: Column<Advice>,
@@ -199,7 +200,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn vaddr_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         vaddr_sel: Column<Advice>,
         temp_var: Column<Advice>,
@@ -217,7 +218,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn one_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         one_sel: Column<Advice>,
         temp_var: Column<Advice>,
@@ -234,7 +235,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn zero_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         zero_sel: Column<Advice>,
         temp_var: Column<Advice>,
@@ -251,7 +252,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     }
 
     fn max_word_gate<F: FieldExt>(
-        self,
+        &self,
         meta: &mut ConstraintSystem<F>,
         one_sel: Column<Advice>,
         temp_var: Column<Advice>,
@@ -276,18 +277,6 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
         );
     }
 }
-
-#[derive(Debug, Clone, Copy)]
-pub struct Intermediate([Column<Advice>; 10]);
-
-impl Intermediate {
-    fn new<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
-        Intermediate([0; 10].map(|_| meta.advice_column()))
-    }
-}
-
-#[derive(Debug)]
-pub struct IntermediateAlloc(Intermediate, usize);
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
     for ExeChip<F, WORD_BITS, REG_COUNT>
@@ -349,6 +338,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let even_bits = EvenBitsTable::new(meta);
 
+            let meta = &mut TrackColumns::new(meta);
             let a_decompose =
                 EvenBitsConfig::configure(meta, a, table_max_len, even_bits);
             let b_decompose =

@@ -11,10 +11,7 @@ use crate::{
     trace,
 };
 
-use super::{
-    aux::{TempVarSelectors, TempVarSelectorsRow},
-    even_bits::{EvenBitsChip, EvenBitsConfig},
-};
+use super::aux::{TempVarSelectors, TempVarSelectorsRow};
 
 pub struct ProgChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
     config: ProgConfig<WORD_BITS, REG_COUNT, Column<Instance>>,

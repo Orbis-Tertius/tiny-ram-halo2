@@ -1,3 +1,4 @@
+use crate::assign::ConstraintSys;
 use crate::circuits::tables::even_bits::EvenBitsConfig;
 use halo2_proofs::circuit::Region;
 use halo2_proofs::pasta::Fp;
@@ -37,7 +38,7 @@ pub struct AndConfig<const WORD_BITS: u32> {
 
 impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
     pub fn configure<F: FieldExt>(
-        meta: &mut ConstraintSystem<F>,
+        meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,
         s_and: Column<Advice>,
 
@@ -57,7 +58,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
             })
         };
 
-        let even_sum = meta.advice_column();
+        let even_sum = meta.new_column();
         let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             even_sum,
@@ -65,7 +66,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
             lhs.even_bits,
         );
 
-        let odd_sum = meta.advice_column();
+        let odd_sum = meta.new_column();
         let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             odd_sum,
@@ -73,6 +74,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
             lhs.even_bits,
         );
 
+        let meta = meta.cs();
         add_gate(meta, lhs.even, rhs.even, even_sum.word);
         add_gate(meta, lhs.odd, rhs.odd, odd_sum.word);
 

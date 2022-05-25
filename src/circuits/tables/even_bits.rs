@@ -98,14 +98,16 @@ pub struct EvenBitsConfig<const WORD_BITS: u32> {
 impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     ///
     pub fn configure<F: FieldExt>(
-        meta: &mut ConstraintSystem<F>,
+        meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
         // A complex selector denoting the extent in rows of the table to decompse.
         s_table: Selector,
         even_bits: EvenBitsTable<WORD_BITS>,
     ) -> Self {
-        let even = meta.advice_column();
-        let odd = meta.advice_column();
+        let even = meta.new_column();
+        let odd = meta.new_column();
+
+        let meta = meta.cs();
 
         meta.create_gate("decompose", |meta| {
             let lhs = meta.query_advice(even, Rotation::cur());
@@ -278,6 +280,8 @@ fn decompose_test_even_odd() {
 }
 
 use proptest::prelude::*;
+
+use crate::assign::ConstraintSys;
 
 proptest! {
     #[test]
