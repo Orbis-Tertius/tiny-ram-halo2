@@ -236,19 +236,17 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     fn zero_gate<F: FieldExt>(
         self,
         meta: &mut ConstraintSystem<F>,
-        one_sel: Column<Advice>,
+        zero_sel: Column<Advice>,
         temp_var: Column<Advice>,
         temp_var_name: &str,
     ) {
         meta.create_gate(leak_once(format!("tv.{}.zero", temp_var_name)), |meta| {
-            let s_zero = meta.query_advice(one_sel, Rotation::cur());
+            let s_zero = meta.query_advice(zero_sel, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
             let table_max_len = meta.query_selector(self.table_max_len);
 
-            vec![
-                table_max_len * s_zero * (Expression::Constant(F::zero()) - t_var_a),
-            ]
+            vec![table_max_len * s_zero * t_var_a]
         });
     }
 
@@ -278,6 +276,18 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
         );
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct Intermediate([Column<Advice>; 10]);
+
+impl Intermediate {
+    fn new<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+        Intermediate([0; 10].map(|_| meta.advice_column()))
+    }
+}
+
+#[derive(Debug)]
+pub struct IntermediateAlloc(Intermediate, usize);
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
     for ExeChip<F, WORD_BITS, REG_COUNT>
@@ -309,7 +319,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let time = meta.advice_column();
 
             let pc = meta.advice_column();
-            meta.enable_equality(pc);
 
             let opcode = meta.advice_column();
 
@@ -581,7 +590,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             let ta = F::from_u128(ta as u128);
                             let tb = F::from_u128(tb as u128);
-                            let tc = F::from_u128(tc as u128);
+                            let tc = F::from_u128(dbg!(tc) as u128);
                             let td = F::from_u128(td as u128);
 
                             region
@@ -605,7 +614,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("c: {:?}", tc),
                                     c,
                                     offset,
-                                    || Ok(tc),
+                                    || Ok(dbg!(tc)),
                                 )
                                 .unwrap();
                             region

@@ -999,7 +999,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
             reg,
             reg_next,
             a,
-            non_det: temp_var_c,
+            non_det,
             zero,
         } = self;
 
@@ -1012,7 +1012,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(zero, vals.zero.into()).unwrap();
-        region.push_cell(temp_var_c, vals.non_det.into()).unwrap();
+        region.push_cell(non_det, vals.non_det.into()).unwrap();
     }
 }
 
