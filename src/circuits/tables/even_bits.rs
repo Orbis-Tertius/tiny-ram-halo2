@@ -387,13 +387,24 @@ mod mem_test {
                 .assign_region(
                     || "decompose",
                     |mut region| {
-                        let a = self.input.map(|w| {
-                            region
-                                .assign_advice(|| "word", config.word, 0, || Ok(w))
-                                .unwrap()
-                        });
                         config.s_table.enable(&mut region, 0)?;
-                        if let Some(Some(word)) = a.map(|a| a.value().cloned()) {
+                        if let Some(word) = self.input {
+                            region
+                                .assign_advice(
+                                    || "s_even_bits",
+                                    config.s_even_bits,
+                                    0,
+                                    || Ok(F::one()),
+                                )
+                                .unwrap();
+                            region
+                                .assign_advice(
+                                    || "word",
+                                    config.word,
+                                    0,
+                                    || Ok(dbg!(word)),
+                                )
+                                .unwrap();
                             config.assign_decompose(&mut region, 0, word);
                         };
                         Ok(())
