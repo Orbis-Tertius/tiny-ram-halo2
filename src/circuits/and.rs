@@ -48,10 +48,10 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         res: Column<Advice>,
     ) -> Self {
         let a = EvenBitsConfig::configure(meta, a, s_and, s_table, even_bits);
-        let b = EvenBitsConfig::new(meta, b, s_and, s_table, even_bits);
+        let b = EvenBitsConfig::configure(meta, b, s_and, s_table, even_bits);
 
         let even_sum = meta.new_column();
-        let even_sum = EvenBitsConfig::<WORD_BITS>::new(
+        let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             even_sum,
             s_and,
@@ -60,7 +60,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         );
 
         let odd_sum = meta.new_column();
-        let odd_sum = EvenBitsConfig::<WORD_BITS>::new(
+        let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             odd_sum,
             s_and,
@@ -137,8 +137,8 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         rhs: F,
         offset: usize,
     ) -> AssignedCell<F, F> {
-        let (rhs_e, rhs_o) = self.b.assign_decompose(region, offset, rhs);
         let (lhs_e, lhs_o) = self.a.assign_decompose(region, offset, lhs);
+        let (rhs_e, rhs_o) = self.b.assign_decompose(region, offset, rhs);
 
         let even_sum = *lhs_e + *rhs_e;
         region

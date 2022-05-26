@@ -150,23 +150,21 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             ]
         });
 
-        let u = meta.lookup(|meta| {
+        let _ = meta.lookup(|meta| {
             let lookup = meta.query_selector(s_table);
             let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
             let e = meta.query_advice(even, Rotation::cur());
 
             vec![(lookup * s_even_bits * e, even_bits.0)]
         });
-        dbg!(u);
 
-        let two = meta.lookup(|meta| {
+        let _ = meta.lookup(|meta| {
             let lookup = meta.query_selector(s_table);
             let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
             let o = meta.query_advice(odd, Rotation::cur());
 
             vec![(lookup * s_even_bits * o, even_bits.0)]
         });
-        dbg!(two);
 
         conf
     }

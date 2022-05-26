@@ -21,7 +21,7 @@ use super::{
         SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
         TempVarSelectorsRow,
     },
-    even_bits::{EvenBitsConfig, EvenBitsTable},
+    even_bits::EvenBitsTable,
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -563,7 +563,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             temp_var_selectors.push_cells(
                                 &mut (&mut region, offset),
-                                dbg!(temp_var_selectors_row),
+                                temp_var_selectors_row,
                             );
 
                             let (ta, tb, tc, td) = temp_var_selectors_row
@@ -573,7 +573,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             let ta = F::from_u128(ta as u128);
                             let tb = F::from_u128(tb as u128);
-                            let tc = F::from_u128(dbg!(tc) as u128);
+                            let tc = F::from_u128((tc) as u128);
                             let td = F::from_u128(td as u128);
 
                             region
@@ -597,7 +597,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("c: {:?}", tc),
                                     c,
                                     offset,
-                                    || Ok(dbg!(tc)),
+                                    || Ok(tc),
                                 )
                                 .unwrap();
                             region
@@ -700,6 +700,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
         let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config);
+
+        exe_chip
+            .config
+            .even_bits
+            .alloc_table(&mut layouter)
+            .unwrap();
 
         if let Some(trace) = &self.trace {
             exe_chip
