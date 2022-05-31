@@ -549,8 +549,8 @@ dependencies = [
 
 [[package]]
 name = "halo2_proofs"
-version = "0.1.0-beta.4"
-source = "git+https://github.com/zcash/halo2.git?rev=72ff677776504c288f4927a6ce8d3c273ebd588d#72ff677776504c288f4927a6ce8d3c273ebd588d"
+version = "0.1.0"
+source = "git+https://github.com/zcash/halo2.git?rev=8075b216e850035cde940c96eb93bf285254ee2e#8075b216e850035cde940c96eb93bf285254ee2e"
 dependencies = [
  "blake2b_simd",
  "ff 0.12.0",
@@ -1162,6 +1162,7 @@ name = "tiny-ram-halo2"
 version = "0.1.0"
 dependencies = [
  "halo2_proofs",
+ "lazy_static",
  "pasta_curves 0.3.0",
  "plotters",
  "proptest",

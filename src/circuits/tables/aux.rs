@@ -260,8 +260,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
 
         match *inst {
             // Reference Page 27, Fig. 3
-            trace::Instruction::And(And { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::And(And { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
@@ -277,8 +277,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Or(Or { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Or(Or { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
@@ -294,8 +294,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Xor(Xor { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Xor(Xor { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
@@ -312,8 +312,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
             },
 
-            trace::Instruction::Not(Not { ri, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Not(Not { ri, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::MaxWord,
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
@@ -330,8 +330,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
             },
             // Reference Page 27, Fig. 4
-            trace::Instruction::Add(Add { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Add(Add { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Zero,
@@ -342,8 +342,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Sub(Sub { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Sub(Sub { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Reg(rj),
                 d: SelectionD::Zero,
@@ -354,8 +354,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Mull(Mull { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Mull(Mull { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
@@ -371,8 +371,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::UMulh(UMulh { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::UMulh(UMulh { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
@@ -388,8 +388,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::SMulh(SMulh { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::SMulh(SMulh { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
@@ -405,10 +405,10 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::UDiv(UDiv { ri, rj, .. }) => Self {
+            trace::Instruction::UDiv(UDiv { ri, rj, a }) => Self {
                 a: SelectionA::NonDet,
                 b: SelectionB::RegN(ri),
-                c: SelectionC::A,
+                c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
                 out: Out {
                     mod_: true,
@@ -423,10 +423,10 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::UMod(UMod { ri, rj, .. }) => Self {
+            trace::Instruction::UMod(UMod { ri, rj, a }) => Self {
                 a: SelectionA::RegN(ri),
                 b: SelectionB::TempVarB,
-                c: SelectionC::A,
+                c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
                 out: Out {
                     mod_: true,
@@ -441,8 +441,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Shl(Shl { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Shl(Shl { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
@@ -457,8 +457,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Shr(Shr { ri, rj, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Shr(Shr { ri, rj, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
@@ -475,8 +475,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
 
             // Reference Page 33, Fig. 8
-            trace::Instruction::Cmpe(Cmpe { ri, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Cmpe(Cmpe { ri, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Reg(ri),
                 c: SelectionC::NonDet,
                 d: SelectionD::Unset,
@@ -488,40 +488,40 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpa(Cmpa { ri, .. }) => Self {
+            trace::Instruction::Cmpa(Cmpa { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::TempVarB,
-                c: SelectionC::A,
+                c: SelectionC::A(a),
                 d: SelectionD::Zero,
                 out: Out { sum: true, ..out },
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpae(Cmpae { ri, .. }) => Self {
+            trace::Instruction::Cmpae(Cmpae { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::TempVarB,
-                c: SelectionC::A,
+                c: SelectionC::A(a),
                 d: SelectionD::One,
                 out: Out { sum: true, ..out },
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpg(Cmpg { ri, .. }) => Self {
+            trace::Instruction::Cmpg(Cmpg { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::TempVarB,
-                c: SelectionC::A,
+                c: SelectionC::A(a),
                 d: SelectionD::Zero,
                 out: Out { ssum: true, ..out },
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpge(Cmpge { ri, .. }) => Self {
+            trace::Instruction::Cmpge(Cmpge { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::TempVarB,
-                c: SelectionC::A,
+                c: SelectionC::A(a),
                 d: SelectionD::One,
                 out: Out { ssum: true, ..out },
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Mov(Mov { ri, .. }) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Mov(Mov { ri, a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
@@ -531,9 +531,9 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::CMov(CMov { ri, .. }) => Self {
+            trace::Instruction::CMov(CMov { ri, a }) => Self {
                 a: SelectionA::RegN(ri),
-                b: SelectionB::A,
+                b: SelectionB::A(a),
                 c: SelectionC::Zero,
                 // The table on page 34 call for rj,t.
                 // It's a typo, on page 33 d = ri,t.
@@ -544,32 +544,32 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::Jmp(_) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Jmp(Jmp { a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::PcN,
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
                 out: Out { xor: true, ..out },
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
-            trace::Instruction::CJmp(_) => Self {
+            trace::Instruction::CJmp(CJmp { a }) => Self {
                 a: SelectionA::PcN,
-                b: SelectionB::A,
+                b: SelectionB::A(a),
                 c: SelectionC::Zero,
                 d: SelectionD::PcPlusOne,
                 out: Out { mod_: true, ..out },
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
-            trace::Instruction::CnJmp(_) => Self {
+            trace::Instruction::CnJmp(CnJmp { a }) => Self {
                 a: SelectionA::PcN,
                 b: SelectionB::PcPlusOne,
                 c: SelectionC::Zero,
-                d: SelectionD::A,
+                d: SelectionD::A(a),
                 out: Out { mod_: true, ..out },
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
 
-            trace::Instruction::LoadW(LoadW { ri, .. }) => Self {
+            trace::Instruction::LoadW(LoadW { ri, a }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::Reg(ri),
                 c: SelectionC::Zero,
@@ -577,7 +577,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 out: Out { xor: true, ..out },
                 ch,
             },
-            trace::Instruction::StoreW(StoreW { ri, .. }) => Self {
+            trace::Instruction::StoreW(StoreW { ri, a }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
@@ -591,8 +591,8 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
 
             // TODO it is unclear what should be in Answer's selection vectors.
             // Reference page 35
-            trace::Instruction::Answer(_) => Self {
-                a: SelectionA::A,
+            trace::Instruction::Answer(Answer { a }) => Self {
+                a: SelectionA::A(a),
                 b: SelectionB::Pc,
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
@@ -613,9 +613,14 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
         let pc_n = || steps[i + 1].pc.0;
         let reg = |r| steps[i].regs[r].0;
         let reg_n = |r| steps[i + 1].regs[r].0;
-        let a = || match steps[i].instruction.a() {
-            ImmediateOrRegName::Immediate(a) => a.0,
-            ImmediateOrRegName::RegName(r) => steps[i].regs[r].0,
+        let a = |ior| {
+            let iors = steps[i].instruction.a();
+            // Double check
+            assert_eq!(iors, ior);
+            match ior {
+                ImmediateOrRegName::Immediate(a) => a.0,
+                ImmediateOrRegName::RegName(r) => r.0.into(),
+            }
         };
         let v_addr = || steps[i].v_addr.unwrap().0;
 
@@ -623,7 +628,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
             SelectionA::PcN => pc_n(),
             SelectionA::Reg(r) => reg(r),
             SelectionA::RegN(r) => reg_n(r),
-            SelectionA::A => a(),
+            SelectionA::A(ior) => a(ior),
             SelectionA::VAddr => v_addr(),
             SelectionA::NonDet => match steps[i].instruction {
                 Instruction::UDiv(UDiv { rj, a, .. }) => {
@@ -644,7 +649,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
             SelectionB::PcPlusOne => pc() + 1,
             SelectionB::Reg(r) => reg(r),
             SelectionB::RegN(r) => reg_n(r),
-            SelectionB::A => a(),
+            SelectionB::A(ior) => a(ior),
             SelectionB::TempVarB => match steps[i].instruction {
                 Instruction::UMod(UMod { rj, a, .. }) => {
                     let a = a.get(&steps[i].regs).0;
@@ -656,13 +661,13 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                 }
                 _ => panic!("Unhandled temp var a case"),
             },
-            SelectionB::MaxWord => todo!(),
+            SelectionB::MaxWord => (2u64.pow(WORD_BITS) - 1) as u32,
         };
 
         let tc = match self.c {
             SelectionC::Reg(r) => reg(r),
             SelectionC::RegN(r) => reg_n(r),
-            SelectionC::A => a(),
+            SelectionC::A(ior) => a(ior),
             SelectionC::NonDet => match steps[i].instruction {
                 Instruction::Mull(Mull { rj, a, .. }) => {
                     let r = steps[i].regs[rj].0 as u128
@@ -680,7 +685,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
             SelectionD::PcPlusOne => pc() + 1,
             SelectionD::Reg(r) => reg(r),
             SelectionD::RegN(r) => reg_n(r),
-            SelectionD::A => a(),
+            SelectionD::A(ior) => a(ior),
             SelectionD::NonDet => match steps[i].instruction {
                 Instruction::UMulh(UMulh { rj, a, .. }) => {
                     let r = steps[i].regs[rj].0 as u128
@@ -706,7 +711,7 @@ pub enum SelectionA {
     Reg(RegName),
     RegN(RegName),
 
-    A,
+    A(ImmediateOrRegName),
 
     VAddr,
     /// "non-deterministic advice"
@@ -742,7 +747,8 @@ impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
         match s {
             SelectionA::Reg(i) => r.reg[i] = true,
             SelectionA::RegN(i) => r.reg_next[i] = true,
-            SelectionA::A => r.a = true,
+            SelectionA::A(ImmediateOrRegName::Immediate(_)) => r.a = true,
+            SelectionA::A(ImmediateOrRegName::RegName(i)) => r.reg[i] = true,
             SelectionA::NonDet => r.non_det = true,
             SelectionA::PcN => r.pc_next = true,
             SelectionA::VAddr => r.v_addr = true,
@@ -808,7 +814,7 @@ pub enum SelectionB {
     Reg(RegName),
     RegN(RegName),
 
-    A,
+    A(ImmediateOrRegName),
     /// Selects the temporary var associated with this selection vector.
     TempVarB,
 
@@ -830,10 +836,9 @@ pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
 
     pub a: C,
 
-    /// Selects the temporary var associated with this selection vector.
-    pub temp_var_b: C,
+    /// "non-deterministic advice"
+    pub non_det: C,
 
-    pub one: C,
     pub max_word: C,
 }
 
@@ -850,8 +855,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             a: meta.new_column(),
-            temp_var_b: meta.new_column(),
-            one: meta.new_column(),
+            non_det: meta.new_column(),
             max_word: meta.new_column(),
         }
     }
@@ -866,21 +870,18 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
-            temp_var_b: false,
-            one: false,
+            non_det: false,
             max_word: false,
         };
         match s {
             SelectionB::Pc => r.pc = true,
             SelectionB::PcN => r.pc_next = true,
-            SelectionB::PcPlusOne => {
-                r.pc = true;
-                r.one = true;
-            }
+            SelectionB::PcPlusOne => r.pc_plus_one = true,
             SelectionB::Reg(i) => r.reg[i] = true,
             SelectionB::RegN(i) => r.reg_next[i] = true,
-            SelectionB::A => r.a = true,
-            SelectionB::TempVarB => r.temp_var_b = true,
+            SelectionB::A(ImmediateOrRegName::Immediate(_)) => r.a = true,
+            SelectionB::A(ImmediateOrRegName::RegName(i)) => r.reg[i] = true,
+            SelectionB::TempVarB => r.non_det = true,
             SelectionB::MaxWord => r.max_word = true,
         };
         r
@@ -900,9 +901,8 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
             reg,
             reg_next,
             a,
-            temp_var_b,
-            one,
-            max_word: max,
+            non_det,
+            max_word,
         } = self;
 
         region.push_cell(pc, vals.pc.into()).unwrap();
@@ -919,11 +919,8 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
         }
 
         region.push_cell(a, vals.a.into()).unwrap();
-        region.push_cell(one, vals.one.into()).unwrap();
-        region.push_cell(max, vals.max_word.into()).unwrap();
-        region
-            .push_cell(temp_var_b, vals.temp_var_b.into())
-            .unwrap();
+        region.push_cell(max_word, vals.max_word.into()).unwrap();
+        region.push_cell(non_det, vals.non_det.into()).unwrap();
     }
 }
 
@@ -933,7 +930,7 @@ pub enum SelectionC {
     Reg(RegName),
     RegN(RegName),
 
-    A,
+    A(ImmediateOrRegName),
 
     /// "non-deterministic advice"
     NonDet,
@@ -983,7 +980,8 @@ impl<const REG_COUNT: usize> From<SelectionC> for SelectiorsC<REG_COUNT, bool> {
         match s {
             SelectionC::Reg(i) => r.reg[i] = true,
             SelectionC::RegN(i) => r.reg_next[i] = true,
-            SelectionC::A => r.a = true,
+            SelectionC::A(ImmediateOrRegName::Immediate(_)) => r.a = true,
+            SelectionC::A(ImmediateOrRegName::RegName(i)) => r.reg[i] = true,
             SelectionC::NonDet => r.non_det = true,
             SelectionC::Zero => r.zero = true,
         };
@@ -1001,7 +999,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
             reg,
             reg_next,
             a,
-            non_det: temp_var_c,
+            non_det,
             zero,
         } = self;
 
@@ -1014,7 +1012,7 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
 
         region.push_cell(a, vals.a.into()).unwrap();
         region.push_cell(zero, vals.zero.into()).unwrap();
-        region.push_cell(temp_var_c, vals.non_det.into()).unwrap();
+        region.push_cell(non_det, vals.non_det.into()).unwrap();
     }
 }
 
@@ -1026,7 +1024,7 @@ pub enum SelectionD {
     Reg(RegName),
     RegN(RegName),
 
-    A,
+    A(ImmediateOrRegName),
 
     /// "non-deterministic advice"
     NonDet,
@@ -1094,7 +1092,8 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
             }
             SelectionD::Reg(i) => r.reg[i] = true,
             SelectionD::RegN(i) => r.reg_next[i] = true,
-            SelectionD::A => r.a = true,
+            SelectionD::A(ImmediateOrRegName::Immediate(_)) => r.a = true,
+            SelectionD::A(ImmediateOrRegName::RegName(i)) => r.reg[i] = true,
             SelectionD::NonDet => r.non_det = true,
             SelectionD::Zero => r.zero = true,
             SelectionD::One => r.one = true,

@@ -3,18 +3,25 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Selector},
+    plonk::{
+        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
+    },
     poly::Rotation,
 };
 
 use crate::{
-    circuits::and::AndChip,
-    trace::{RegName, Step, Trace},
+    assign::TrackColumns,
+    circuits::and::AndConfig,
+    leak_once,
+    trace::{Registers, Trace},
 };
 
 use super::{
-    aux::{Out, SelectiorsA, TempVarSelectors, TempVarSelectorsRow},
-    even_bits::{EvenBitsChip, EvenBitsConfig},
+    aux::{
+        SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
+        TempVarSelectorsRow,
+    },
+    even_bits::EvenBitsTable,
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -24,7 +31,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 
 /// The both constant parameters `WORD_BITS`, `REG_COUNT` will always fit in a `u8`.
 /// `u32`, and `usize`, were picked for convenience.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     table_max_len: Selector,
     /// This is redundant with 0 padded `time`.
@@ -47,14 +54,226 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     c: Column<Advice>,
     d: Column<Advice>,
 
-    out: Out<Column<Advice>>,
-
     // t_link: Column<Advice>,
     // v_link: Column<Advice>,
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
     temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+
+    even_bits: EvenBitsTable<WORD_BITS>,
+    and: AndConfig<WORD_BITS>,
+    intermediate: Vec<Column<Advice>>,
+}
+
+impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
+    fn pc_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        pc_next: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.pc", temp_var_name)), |meta| {
+            let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+            let pc = meta.query_advice(self.pc, Rotation::cur());
+            let t_var = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * sa_pc_next * (pc - t_var)]
+        });
+    }
+
+    fn pc_gate_plus_one<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        pc_next: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.pc+1", temp_var_name)), |meta| {
+            let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+            let pc = meta.query_advice(self.pc, Rotation::cur());
+            let t_var = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![
+                table_max_len
+                    * sa_pc_next
+                    * ((pc + Expression::Constant(F::one())) - t_var),
+            ]
+        });
+    }
+
+    fn pc_next_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        pc_next: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(
+            leak_once(format!("tv.{}.pc_next", temp_var_name)),
+            |meta| {
+                let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
+                let pc_next = meta.query_advice(self.pc, Rotation::next());
+                let t_var = meta.query_advice(temp_var, Rotation::cur());
+
+                // We disable this gate on the last row of the Exe trace.
+                // This is fine since the last row must contain Answer 0.
+                // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
+                let time_next = meta.query_advice(self.time, Rotation::next());
+                let exe_len = meta.query_selector(self.exe_len);
+
+                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var)]
+            },
+        );
+    }
+
+    fn reg_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        reg_sel: Registers<REG_COUNT, Column<Advice>>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        for (i, s_reg) in reg_sel.0.into_iter().enumerate() {
+            meta.create_gate(
+                leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
+                |meta| {
+                    let s_reg = meta.query_advice(s_reg, Rotation::cur());
+                    let reg = meta.query_advice(self.reg[i], Rotation::cur());
+                    let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+                    let table_max_len = meta.query_selector(self.table_max_len);
+
+                    vec![table_max_len * s_reg * (reg - t_var_a)]
+                },
+            );
+        }
+    }
+
+    fn reg_next_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        reg_next: Registers<REG_COUNT, Column<Advice>>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        for (i, s_reg_next) in reg_next.0.into_iter().enumerate() {
+            meta.create_gate(
+                leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
+                |meta| {
+                    let s_reg = meta.query_advice(s_reg_next, Rotation::cur());
+                    let reg_next = meta.query_advice(self.reg[i], Rotation::next());
+                    let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+                    let time_next = meta.query_advice(self.time, Rotation::next());
+                    let exe_len = meta.query_selector(self.exe_len);
+
+                    vec![exe_len * time_next * s_reg * (reg_next - t_var_a)]
+                },
+            );
+        }
+    }
+
+    fn immediate_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        immediate_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.a", temp_var_name)), |meta| {
+            let s_immediate = meta.query_advice(immediate_sel, Rotation::cur());
+            let immediate = meta.query_advice(self.immediate, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_immediate * (immediate - t_var_a)]
+        });
+    }
+
+    fn vaddr_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        vaddr_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.vaddr", temp_var_name)), |meta| {
+            let s_vaddr = meta.query_advice(vaddr_sel, Rotation::cur());
+            let value = meta.query_advice(self.value, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_vaddr * (value - t_var_a)]
+        });
+    }
+
+    fn one_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        one_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.one", temp_var_name)), |meta| {
+            let s_one = meta.query_advice(one_sel, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_one * (Expression::Constant(F::one()) - t_var_a)]
+        });
+    }
+
+    fn zero_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        zero_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(leak_once(format!("tv.{}.zero", temp_var_name)), |meta| {
+            let s_zero = meta.query_advice(zero_sel, Rotation::cur());
+            let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            vec![table_max_len * s_zero * t_var_a]
+        });
+    }
+
+    fn max_word_gate<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        one_sel: Column<Advice>,
+        temp_var: Column<Advice>,
+        temp_var_name: &str,
+    ) {
+        meta.create_gate(
+            leak_once(format!("tv.{}.max_word", temp_var_name)),
+            |meta| {
+                let s_max_word = meta.query_advice(one_sel, Rotation::cur());
+                let t_var_a = meta.query_advice(temp_var, Rotation::cur());
+
+                let table_max_len = meta.query_selector(self.table_max_len);
+
+                vec![
+                    table_max_len
+                        * s_max_word
+                        * (Expression::Constant(F::from_u128(
+                            2u128.pow(WORD_BITS) - 1,
+                        )) - t_var_a),
+                ]
+            },
+        );
+    }
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -83,56 +302,71 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
-        let time = meta.advice_column();
+        let config = {
+            let time = meta.advice_column();
 
-        let pc = meta.advice_column();
-        meta.enable_equality(pc);
+            let pc = meta.advice_column();
 
-        let opcode = meta.advice_column();
+            let opcode = meta.advice_column();
 
-        let immediate = meta.advice_column();
+            let immediate = meta.advice_column();
 
-        // We cannot write `[meta.advice_column(); REG_COUNT]`,
-        // That would produce an array of the same advice copied REG_COUNT times.
-        //
-        // See Rust's array initialization semantics.
-        let reg = [0; REG_COUNT].map(|_| meta.advice_column());
-        for column in &reg {
-            meta.enable_equality(*column);
-        }
+            // We cannot write `[meta.advice_column(); REG_COUNT]`,
+            // That would produce an array of the same advice copied REG_COUNT times.
+            //
+            // See Rust's array initialization semantics.
+            let reg = [0; REG_COUNT].map(|_| meta.advice_column());
+            for column in &reg {
+                meta.enable_equality(*column);
+            }
 
-        // Temporary vars
-        let a = meta.advice_column();
-        let b = meta.advice_column();
-        let c = meta.advice_column();
-        let d = meta.advice_column();
+            // Temporary vars
+            let a = meta.advice_column();
+            let b = meta.advice_column();
+            let c = meta.advice_column();
+            let d = meta.advice_column();
 
-        let flag = meta.advice_column();
-        let address = meta.advice_column();
-        let value = meta.advice_column();
-        let out = Out::new(|| meta.advice_column());
-        let temp_var_selectors =
-            TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
-        let table_max_len = meta.selector();
-        let exe_len = meta.selector();
+            let flag = meta.advice_column();
+            let address = meta.advice_column();
+            let value = meta.advice_column();
+            let temp_var_selectors =
+                TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+            let table_max_len = meta.complex_selector();
+            let exe_len = meta.selector();
 
-        let config = ExeConfig {
-            time,
-            pc,
-            opcode,
-            immediate,
-            reg,
-            flag,
-            address,
-            value,
-            a,
-            b,
-            c,
-            d,
-            out,
-            temp_var_selectors,
-            table_max_len,
-            exe_len,
+            let even_bits = EvenBitsTable::new(meta);
+
+            let mut meta = TrackColumns::new(meta);
+            let and = AndConfig::configure(
+                &mut meta,
+                even_bits,
+                table_max_len,
+                temp_var_selectors.out.and,
+                a,
+                b,
+                c,
+            );
+
+            ExeConfig {
+                time,
+                pc,
+                opcode,
+                immediate,
+                reg,
+                flag,
+                address,
+                value,
+                a,
+                b,
+                c,
+                d,
+                temp_var_selectors,
+                table_max_len,
+                exe_len,
+                even_bits,
+                and,
+                intermediate: meta.1,
+            }
         };
 
         {
@@ -142,23 +376,77 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 reg_next,
                 a,
                 v_addr,
+                non_det: _,
+            } = config.temp_var_selectors.a;
+
+            config.pc_next_gate(meta, pc_next, config.a, "a");
+            config.reg_gate(meta, reg, config.a, "a");
+            config.reg_next_gate(meta, reg_next, config.a, "a");
+            config.immediate_gate(meta, a, config.a, "a");
+            config.vaddr_gate(meta, v_addr, config.a, "a");
+
+            // TODO use a lookup to check non_det is a valid word.
+        }
+
+        {
+            let SelectiorsB {
+                pc,
+                pc_next,
+                pc_plus_one,
+                reg,
+                reg_next,
+                a,
                 non_det,
-            } = temp_var_selectors.a;
+                max_word,
+            } = config.temp_var_selectors.b;
 
-            meta.create_gate("tv[a][pc_next]", |meta| {
-                let sa_pc_next = meta.query_advice(pc_next, Rotation::cur());
-                let pc_next = meta.query_advice(config.pc, Rotation::next());
-                let t_var_a = meta.query_advice(config.a, Rotation::cur());
+            config.pc_gate(meta, pc, config.b, "b");
+            config.pc_next_gate(meta, pc_next, config.b, "b");
+            config.pc_gate_plus_one(meta, pc_plus_one, config.b, "b");
+            config.reg_gate(meta, reg, config.b, "b");
+            config.reg_next_gate(meta, reg_next, config.b, "b");
+            config.immediate_gate(meta, a, config.b, "b");
+            config.max_word_gate(meta, max_word, config.b, "b");
 
-                // We disable this gate on the last row of the Exe trace.
-                // This is fine since the last row must contain Answer 0.
-                // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
-                let time_next = meta.query_advice(config.time, Rotation::next());
-                // let table_max_len = meta.query_selector(table_max_len);
-                let exe_len = meta.query_selector(exe_len);
+            // TODO use a lookup to check non_det is a valid word.
+        }
 
-                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var_a)]
-            });
+        {
+            let SelectiorsC {
+                reg,
+                reg_next,
+                a,
+                non_det,
+                zero,
+            } = config.temp_var_selectors.c;
+
+            config.reg_gate(meta, reg, config.c, "c");
+            config.reg_next_gate(meta, reg_next, config.c, "c");
+            config.immediate_gate(meta, a, config.c, "c");
+            config.zero_gate(meta, zero, config.c, "c");
+
+            // TODO use a lookup to check non_det is a valid word.
+        }
+
+        {
+            let SelectiorsD {
+                pc,
+                reg,
+                reg_next,
+                a,
+                non_det,
+                zero,
+                one,
+            } = config.temp_var_selectors.d;
+
+            config.pc_gate(meta, pc, config.d, "d");
+            config.reg_gate(meta, reg, config.d, "d");
+            config.reg_next_gate(meta, reg_next, config.d, "d");
+            config.immediate_gate(meta, a, config.d, "d");
+            config.zero_gate(meta, zero, config.d, "d");
+            config.one_gate(meta, one, config.d, "d");
+
+            // TODO use a lookup to check non_det is a valid word.
         }
         config
     }
@@ -169,6 +457,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         trace: &Trace<WORD_BITS, REG_COUNT>,
     ) -> Result<(), Error> {
         let ExeConfig {
+            table_max_len,
+            exe_len,
             time,
             pc,
             opcode,
@@ -181,10 +471,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             b,
             c,
             d,
-            out,
             temp_var_selectors,
-            table_max_len,
-            exe_len,
+            even_bits,
+            and,
+            intermediate: _,
         } = self.config;
 
         layouter
@@ -199,12 +489,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         exe_len.enable(&mut region, i)?;
                     }
 
-                    for (i, step) in trace.exe.iter().enumerate() {
+                    for (offset, step) in trace.exe.iter().enumerate() {
                         region
                             .assign_advice(
                                 || format!("time: {}", step.time.0),
                                 time,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(step.time.0 as u128)),
                             )
                             .unwrap();
@@ -213,7 +503,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("pc: {}", step.pc.0),
                                 pc,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(step.pc.0 as u128)),
                             )
                             .unwrap();
@@ -222,7 +512,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("opcode: {}", step.instruction.opcode()),
                                 opcode,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(step.instruction.opcode())),
                             )
                             .unwrap();
@@ -237,19 +527,19 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .assign_advice(
                                 || format!("immediate: {}", immediate_v),
                                 immediate,
-                                i,
+                                offset,
                                 || Ok(F::from_u128(immediate_v)),
                             )
                             .unwrap();
 
                         // assign registers
-                        for ((i, reg), v) in reg.iter().enumerate().zip(step.regs.0)
+                        for ((rn, reg), v) in reg.iter().enumerate().zip(step.regs.0)
                         {
                             region
                                 .assign_advice(
-                                    || format!("r{}: {}", i, v.0),
+                                    || format!("r{}: {}", rn, v.0),
                                     *reg,
-                                    i,
+                                    offset,
                                     || Ok(F::from_u128(v.into())),
                                 )
                                 .unwrap();
@@ -258,8 +548,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         region
                             .assign_advice(
                                 || format!("flag: {}", step.flag),
-                                immediate,
-                                i,
+                                flag,
+                                offset,
                                 || Ok(F::from(step.flag)),
                             )
                             .unwrap();
@@ -272,43 +562,97 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 );
 
                             temp_var_selectors.push_cells(
-                                &mut (&mut region, i),
-                                dbg!(temp_var_selectors_row),
+                                &mut (&mut region, offset),
+                                temp_var_selectors_row,
                             );
 
                             let (ta, tb, tc, td) = temp_var_selectors_row
-                                .push_temp_var_vals::<F, WORD_BITS>(&trace.exe, i);
+                                .push_temp_var_vals::<F, WORD_BITS>(
+                                    &trace.exe, offset,
+                                );
+
+                            let ta = F::from_u128(ta as u128);
+                            let tb = F::from_u128(tb as u128);
+                            let tc = F::from_u128((tc) as u128);
+                            let td = F::from_u128(td as u128);
 
                             region
                                 .assign_advice(
-                                    || format!("a: {}", ta),
+                                    || format!("a: {:?}", ta),
                                     a,
-                                    i,
-                                    || Ok(F::from_u128(ta as u128)),
+                                    offset,
+                                    || Ok(ta),
                                 )
                                 .unwrap();
                             region
                                 .assign_advice(
-                                    || format!("b: {}", tb),
+                                    || format!("b: {:?}", tb),
                                     b,
-                                    i,
-                                    || Ok(F::from_u128(tb as u128)),
+                                    offset,
+                                    || Ok(tb),
                                 )
                                 .unwrap();
                             region
                                 .assign_advice(
-                                    || format!("c: {}", tc),
+                                    || format!("c: {:?}", tc),
                                     c,
-                                    i,
-                                    || Ok(F::from_u128(tc as u128)),
+                                    offset,
+                                    || Ok(tc),
                                 )
                                 .unwrap();
                             region
                                 .assign_advice(
-                                    || format!("d: {}", td),
+                                    || format!("d: {:?}", td),
                                     d,
-                                    i,
-                                    || Ok(F::from_u128(td as u128)),
+                                    offset,
+                                    || Ok(td),
+                                )
+                                .unwrap();
+
+                            for c in self.config.intermediate.iter() {
+                                // Zero fill all the intermediate columns.
+                                // We will reassign the ones we use.
+                                // This works around the unassigned cell error.
+                                //
+                                // A better long term fix is improving the mock prover
+                                // by using `with_selector` instead of the any `Selector` heuristic
+                                region
+                                    .assign_advice(
+                                        || "default fill",
+                                        *c,
+                                        offset,
+                                        || Ok(F::zero()),
+                                    )
+                                    .unwrap();
+                            }
+
+                            match step.instruction {
+                                crate::trace::Instruction::And(_) => {
+                                    and.assign_and(&mut region, ta, tb, offset);
+                                }
+                                // TODO
+                                _ => {}
+                            }
+                        }
+
+                        {
+                            // let addr = match step.instruction {
+                            //     Instruction::LoadW(LoadW { a, .. })
+                            //     | Instruction::StoreW(StoreW { a, .. }) => match a {
+                            //         ImmediateOrRegName::Immediate(w) => w.0,
+                            //         ImmediateOrRegName::RegName(r) => step.regs[r].0,
+                            //     },
+                            //     // We probably should not be assigning anything in these cases,
+                            //     // but until the mock prover has more precise logic we have to.
+                            //     _ => 0,
+                            // };
+                            let vaddr = step.v_addr.unwrap_or_default().0 as _;
+                            region
+                                .assign_advice(
+                                    || format!("vaddr: {}", vaddr),
+                                    value,
+                                    offset,
+                                    || Ok(F::from_u128(vaddr)),
                                 )
                                 .unwrap();
                         }
@@ -339,7 +683,7 @@ pub struct ExeCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     for ExeCircuit<WORD_BITS, REG_COUNT>
 {
-    type Config = (ExeConfig<WORD_BITS, REG_COUNT>, EvenBitsConfig);
+    type Config = ExeConfig<WORD_BITS, REG_COUNT>;
     type FloorPlanner = SimpleFloorPlanner;
 
     fn without_witnesses(&self) -> Self {
@@ -347,13 +691,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
     }
 
     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-        // We create the two advice columns that AndChip uses for I/O.
-        let advice = [meta.advice_column(), meta.advice_column()];
-
-        (
-            ExeChip::<F, WORD_BITS, REG_COUNT>::configure(meta),
-            EvenBitsChip::<F, WORD_BITS>::configure(meta, advice),
-        )
+        ExeChip::<F, WORD_BITS, REG_COUNT>::configure(meta)
     }
 
     fn synthesize(
@@ -361,9 +699,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let even_bits_chip = EvenBitsChip::<F, WORD_BITS>::construct(config.1);
-        even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
-        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
+        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config);
+
+        exe_chip
+            .config
+            .even_bits
+            .alloc_table(&mut layouter)
+            .unwrap();
 
         if let Some(trace) = &self.trace {
             exe_chip
@@ -393,11 +735,6 @@ mod tests {
             Instruction::LoadW(LoadW {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(0)),
-            }),
-            Instruction::And(And {
-                ri: RegName(1),
-                rj: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(0b1)),
             }),
             Instruction::And(And {
                 ri: RegName(1),
