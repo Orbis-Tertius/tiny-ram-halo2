@@ -754,9 +754,10 @@ impl Program {
                     flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
                 }
                 Instruction::Sub(Sub { ri, rj, a }) => {
-                    let r = regs[rj].0 as u128 - a.get(&regs).0 as u128;
+                    let r = regs[rj].0 as u128 + 2u128.pow(WORD_BITS)
+                        - a.get(&regs).0 as u128;
                     regs[ri] = truncate::<WORD_BITS>(r);
-                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                    flag = (r & (get_word_size_bit_mask_msb::<WORD_BITS>())) == 0;
                 }
                 Instruction::Mull(Mull { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store least significant bits of result in ri

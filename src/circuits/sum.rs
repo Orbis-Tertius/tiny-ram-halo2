@@ -74,7 +74,7 @@ impl<const WORD_BITS: u32> SumConfig<WORD_BITS> {
             flag,
         } = Self::new(s_table, s_sum, a, b, c, d, flag);
 
-        meta.cs().create_gate("add", |meta| {
+        meta.cs().create_gate("sum", |meta| {
             let s_table = meta.query_selector(s_table);
             let s_sum = meta.query_advice(s_sum, Rotation::cur());
 
