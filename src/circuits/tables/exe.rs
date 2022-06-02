@@ -11,9 +11,9 @@ use halo2_proofs::{
 
 use crate::{
     assign::TrackColumns,
-    circuits::and::AndConfig,
+    circuits::{and::AndConfig, sum::SumConfig},
     leak_once,
-    trace::{Registers, Trace},
+    trace::{Instruction, Registers, Trace},
 };
 
 use super::{
@@ -63,6 +63,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
     even_bits: EvenBitsTable<WORD_BITS>,
     and: AndConfig<WORD_BITS>,
+    sum: SumConfig<WORD_BITS>,
     intermediate: Vec<Column<Advice>>,
 }
 
@@ -347,6 +348,17 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 c,
             );
 
+            let sum = SumConfig::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.sum,
+                a,
+                b,
+                c,
+                d,
+                flag,
+            );
+
             ExeConfig {
                 time,
                 pc,
@@ -365,6 +377,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 exe_len,
                 even_bits,
                 and,
+                sum,
                 intermediate: meta.1,
             }
         };
@@ -474,6 +487,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             temp_var_selectors,
             even_bits,
             and,
+            sum,
             intermediate: _,
         } = self.config;
 
@@ -627,8 +641,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             }
 
                             match step.instruction {
-                                crate::trace::Instruction::And(_) => {
+                                Instruction::And(_) => {
                                     and.assign_and(&mut region, ta, tb, offset);
+                                }
+                                Instruction::Add(_) | Instruction::Sub(_) => {
+                                    sum.assign_sum(&mut region, F::zero(), offset);
                                 }
                                 // TODO
                                 _ => {}
@@ -723,6 +740,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 mod tests {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::pasta::Fp;
+    use proptest::proptest;
 
     use crate::{
         circuits::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
@@ -730,56 +748,106 @@ mod tests {
     };
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         let prog = Program(vec![
             Instruction::LoadW(LoadW {
                 ri: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(0)),
+                a: ImmediateOrRegName::Immediate(Word(b)),
             }),
             Instruction::And(And {
                 ri: RegName(1),
                 rj: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(0b1)),
+                a: ImmediateOrRegName::Immediate(Word(a)),
             }),
             Instruction::Answer(Answer {
-                a: ImmediateOrRegName::RegName(RegName(1)),
+                a: ImmediateOrRegName::Immediate(Word(1)),
             }),
         ]);
 
         let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
-        assert_eq!(trace.ans.0, 0b1);
+        assert_eq!(trace.ans.0, 1);
         trace
     }
 
-    #[test]
-    fn circuit_layout_test() {
-        const WORD_BITS: u32 = 8;
-        const REG_COUNT: usize = 8;
-        let trace = Some(load_and_answer());
+    fn mov_add_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        let prog = Program(vec![
+            Instruction::Mov(Mov {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(b)),
+            }),
+            Instruction::Add(Add {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            }),
+        ]);
 
-        let k = 1 + WORD_BITS / 2;
-
-        // Instantiate the circuit with the private inputs.
-        let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace };
-        use plotters::prelude::*;
-        let root =
-            BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
-        root.fill(&WHITE).unwrap();
-        let root = root
-            .titled("Exe Circuit Layout", ("sans-serif", 60))
-            .unwrap();
-
-        halo2_proofs::dev::CircuitLayout::default()
-            .mark_equality_cells(true)
-            .show_equality_constraints(true)
-            // The first argument is the size parameter for the circuit.
-            .render::<Fp, _, _>(k, &circuit, &root)
-            .unwrap();
-
-        let dot_string = halo2_proofs::dev::circuit_dot_graph::<Fp, _>(&circuit);
-        let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
-        std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 1);
+        trace
     }
+
+    fn mov_sub_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        let prog = Program(vec![
+            Instruction::Mov(Mov {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(b)),
+            }),
+            Instruction::Sub(Sub {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            }),
+        ]);
+
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 1);
+        trace
+    }
+
+    // #[test]
+    // fn circuit_layout_test() {
+    //     const WORD_BITS: u32 = 8;
+    //     const REG_COUNT: usize = 8;
+    //     let trace = Some(load_and_answer());
+
+    //     let k = 1 + WORD_BITS / 2;
+
+    //     // Instantiate the circuit with the private inputs.
+    //     let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace };
+    //     use plotters::prelude::*;
+    //     let root =
+    //         BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
+    //     root.fill(&WHITE).unwrap();
+    //     let root = root
+    //         .titled("Exe Circuit Layout", ("sans-serif", 60))
+    //         .unwrap();
+
+    //     halo2_proofs::dev::CircuitLayout::default()
+    //         .mark_equality_cells(true)
+    //         .show_equality_constraints(true)
+    //         // The first argument is the size parameter for the circuit.
+    //         .render::<Fp, _, _>(k, &circuit, &root)
+    //         .unwrap();
+
+    //     let dot_string = halo2_proofs::dev::circuit_dot_graph::<Fp, _>(&circuit);
+    //     let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
+    //     std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
+    // }
 
     fn mock_prover_test<const WORD_BITS: u32, const REG_COUNT: usize>(
         trace: Trace<WORD_BITS, REG_COUNT>,
@@ -793,23 +861,6 @@ mod tests {
     }
 
     #[test]
-    fn load_and_answer_mock_prover() {
-        mock_prover_test::<8, 8>(load_and_answer())
-    }
-
-    #[test]
-    fn answer_mock_prover() {
-        let prog = Program(vec![Instruction::Answer(Answer {
-            a: ImmediateOrRegName::Immediate(Word(1)),
-        })]);
-
-        let trace = prog.eval::<8, 8>(Mem::new(&[], &[]));
-        assert_eq!(trace.ans.0, 1);
-
-        mock_prover_test::<8, 8>(trace)
-    }
-
-    #[test]
     fn two_programs() {
         let ans = {
             let ans = Program(vec![Instruction::Answer(Answer {
@@ -820,7 +871,7 @@ mod tests {
             ans
         };
 
-        let l_and_ans = load_and_answer::<8, 8>();
+        let l_and_ans = load_and_answer::<8, 8>(1, 2);
         assert_eq!(l_and_ans.ans.0, 1);
 
         gen_proofs_and_verify::<8, _>(vec![
@@ -832,5 +883,22 @@ mod tests {
                 vec![],
             ),
         ]);
+    }
+
+    proptest! {
+        #[test]
+        fn load_and_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(load_and_answer(a, b))
+        }
+
+        #[test]
+        fn mov_add_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_add_answer(a, b))
+        }
+
+        #[test]
+        fn mov_sub_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_sub_answer(a, b))
+        }
     }
 }
