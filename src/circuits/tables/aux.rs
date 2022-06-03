@@ -425,7 +425,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
             trace::Instruction::UMod(UMod { ri, rj, a }) => Self {
                 a: SelectionA::RegN(ri),
-                b: SelectionB::TempVarB,
+                b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
                 out: Out {
@@ -490,7 +490,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
             trace::Instruction::Cmpa(Cmpa { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
-                b: SelectionB::TempVarB,
+                b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
                 out: Out { sum: true, ..out },
@@ -498,7 +498,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
             trace::Instruction::Cmpae(Cmpae { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
-                b: SelectionB::TempVarB,
+                b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::One,
                 out: Out { sum: true, ..out },
@@ -506,7 +506,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
             trace::Instruction::Cmpg(Cmpg { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
-                b: SelectionB::TempVarB,
+                b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
                 out: Out { ssum: true, ..out },
@@ -514,7 +514,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
             trace::Instruction::Cmpge(Cmpge { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
-                b: SelectionB::TempVarB,
+                b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::One,
                 out: Out { ssum: true, ..out },
@@ -639,7 +639,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                         steps[i].regs[rj].0 / a
                     }
                 }
-                _ => panic!("Unhandled temp var a case"),
+                _ => panic!("Unhandled non-deterministic advice"),
             },
         };
 
@@ -650,7 +650,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
             SelectionB::Reg(r) => reg(r),
             SelectionB::RegN(r) => reg_n(r),
             SelectionB::A(ior) => a(ior),
-            SelectionB::TempVarB => match steps[i].instruction {
+            SelectionB::NonDet => match steps[i].instruction {
                 Instruction::UMod(UMod { rj, a, .. }) => {
                     let a = a.get(&steps[i].regs).0;
                     if a == 0 {
@@ -659,7 +659,41 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                         steps[i].regs[rj].0 / a
                     }
                 }
-                _ => panic!("Unhandled temp var a case"),
+                Instruction::Cmpa(Cmpa { ri, a: ior }) => {
+                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let tc = a(ior) as u64;
+                    // td is 0
+
+                    // See page 32
+                    (if ta > tc {
+                        2u64.pow(WORD_BITS) - (ta - tc)
+                    } else {
+                        tc - ta
+                    }) as u32
+                }
+                Instruction::Cmpg(Cmpg { ri, a: ior }) => {
+                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let tc = a(ior) as u64;
+                    // td is 0
+
+                    (if ta > tc {
+                        2u64.pow(WORD_BITS) - (ta - tc)
+                    } else {
+                        tc - ta
+                    }) as u32
+                }
+                Instruction::Cmpae(Cmpae { ri, a: ior }) => {
+                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let tc = a(ior) as u64;
+                    // td is 1
+
+                    (if ta >= tc {
+                        2u64.pow(WORD_BITS) - 1 - (ta - tc)
+                    } else {
+                        tc - ta - 1
+                    }) as u32
+                }
+                _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionB::MaxWord => (2u64.pow(WORD_BITS) - 1) as u32,
         };
@@ -676,7 +710,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     trace::truncate::<WORD_BITS>(r << WORD_BITS).0
                 }
                 Instruction::Cmpe(Cmpe { ri, a, .. }) => todo!(),
-                _ => panic!("Unhandled temp var a case"),
+                _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionC::Zero => 0,
         };
@@ -693,7 +727,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     // c is the upper word of multiplication (page 28)
                     trace::truncate::<WORD_BITS>(r << WORD_BITS).0
                 }
-                _ => panic!("Unhandled temp var a case"),
+                _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionD::Zero => 0,
             SelectionD::One => 1,
@@ -816,7 +850,7 @@ pub enum SelectionB {
 
     A(ImmediateOrRegName),
     /// Selects the temporary var associated with this selection vector.
-    TempVarB,
+    NonDet,
 
     /// 2^W − 1
     MaxWord,
@@ -881,7 +915,7 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
             SelectionB::RegN(i) => r.reg_next[i] = true,
             SelectionB::A(ImmediateOrRegName::Immediate(_)) => r.a = true,
             SelectionB::A(ImmediateOrRegName::RegName(i)) => r.reg[i] = true,
-            SelectionB::TempVarB => r.non_det = true,
+            SelectionB::NonDet => r.non_det = true,
             SelectionB::MaxWord => r.max_word = true,
         };
         r

@@ -819,9 +819,9 @@ impl Program {
                     flag = (rj & 1) != 0
                 }
                 Instruction::Cmpe(Cmpe { ri, a }) => flag = a.get(&regs) == regs[ri],
-                Instruction::Cmpa(Cmpa { ri, a }) => flag = a.get(&regs) > regs[ri],
+                Instruction::Cmpa(Cmpa { ri, a }) => flag = regs[ri] > a.get(&regs),
                 Instruction::Cmpae(Cmpae { ri, a }) => {
-                    flag = a.get(&regs) >= regs[ri]
+                    flag = regs[ri] >= a.get(&regs)
                 }
                 Instruction::Cmpg(Cmpg { ri, a }) => {
                     let ri = signed_arithmetic::decode_signed::<WORD_BITS>(regs[ri]);

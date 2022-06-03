@@ -644,7 +644,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 Instruction::And(_) => {
                                     and.assign_and(&mut region, ta, tb, offset);
                                 }
-                                Instruction::Add(_) | Instruction::Sub(_) => {
+                                Instruction::Add(_)
+                                | Instruction::Sub(_)
+                                | Instruction::Cmpa(_) => {
                                     sum.assign_sum(&mut region, F::zero(), offset);
                                 }
                                 // TODO
@@ -819,6 +821,52 @@ mod tests {
         trace
     }
 
+    fn mov_cmpa_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        let prog = Program(vec![
+            Instruction::Mov(Mov {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(b)),
+            }),
+            Instruction::Cmpa(Cmpa {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            }),
+        ]);
+
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 1);
+        trace
+    }
+
+    fn mov_cmpae_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        let prog = Program(vec![
+            Instruction::Mov(Mov {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(b)),
+            }),
+            Instruction::Cmpae(Cmpae {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            }),
+        ]);
+
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 1);
+        trace
+    }
+
     // #[test]
     // fn circuit_layout_test() {
     //     const WORD_BITS: u32 = 8;
@@ -899,6 +947,17 @@ mod tests {
         #[test]
         fn mov_sub_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
             mock_prover_test::<8, 8>(mov_sub_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpa_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpa_answer(a, b))
+        }
+
+
+        #[test]
+        fn mov_cmpae_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpae_answer(a, b))
         }
     }
 }
