@@ -693,7 +693,7 @@ pub fn truncate<const WORD_BITS: u32>(word: u128) -> Word {
 
 /// We are matching the Haskell TinyRAM emulator.
 /// github.com/Orbis-Tertius/tinyram/blob/main/src/TinyRAM/Params.hs
-const fn get_word_size_bit_mask_msb<const WORD_BITS: u32>() -> u128 {
+pub const fn get_word_size_bit_mask_msb<const WORD_BITS: u32>() -> u128 {
     let m = 2u128.pow(WORD_BITS);
     m * (m - 1)
 }
