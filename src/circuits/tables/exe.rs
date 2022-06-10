@@ -11,7 +11,7 @@ use halo2_proofs::{
 
 use crate::{
     assign::TrackColumns,
-    circuits::{and::AndConfig, sum::SumConfig},
+    circuits::{and::AndConfig, ssum::SSumConfig, sum::SumConfig},
     leak_once,
     trace::{Instruction, Registers, Trace},
 };
@@ -21,7 +21,8 @@ use super::{
         SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
         TempVarSelectorsRow,
     },
-    even_bits::EvenBitsTable,
+    even_bits::{EvenBitsConfig, EvenBitsTable},
+    signed::SignedConfig,
 };
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
@@ -64,6 +65,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     even_bits: EvenBitsTable<WORD_BITS>,
     and: AndConfig<WORD_BITS>,
     sum: SumConfig<WORD_BITS>,
+    ssum: SSumConfig<WORD_BITS>,
     intermediate: Vec<Column<Advice>>,
 }
 
@@ -333,7 +335,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let temp_var_selectors =
                 TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
             let table_max_len = meta.complex_selector();
-            let exe_len = meta.selector();
+            let exe_len = meta.complex_selector();
 
             let even_bits = EvenBitsTable::new(meta);
 
@@ -359,6 +361,50 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 flag,
             );
 
+            let signed_a = SignedConfig::configure(
+                &mut meta,
+                exe_len,
+                |meta| {
+                    meta.query_advice(temp_var_selectors.out.and, Rotation::cur())
+                        * meta.query_advice(
+                            temp_var_selectors.out.ssum,
+                            Rotation::cur(),
+                        )
+                },
+                and.a,
+            );
+
+            let c_decomp = EvenBitsConfig::configure(
+                &mut meta,
+                c,
+                temp_var_selectors.out.ssum,
+                exe_len,
+                even_bits,
+            );
+            let signed_c = SignedConfig::configure(
+                &mut meta,
+                exe_len,
+                |meta| {
+                    meta.query_advice(temp_var_selectors.out.and, Rotation::cur())
+                        * meta.query_advice(
+                            temp_var_selectors.out.ssum,
+                            Rotation::cur(),
+                        )
+                },
+                c_decomp,
+            );
+
+            let ssum = SSumConfig::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.ssum,
+                signed_a,
+                b,
+                signed_c,
+                d,
+                flag,
+            );
+
             ExeConfig {
                 time,
                 pc,
@@ -378,6 +424,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 even_bits,
                 and,
                 sum,
+                ssum,
                 intermediate: meta.1,
             }
         };
@@ -485,9 +532,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             c,
             d,
             temp_var_selectors,
-            even_bits,
+            even_bits: _,
             and,
             sum,
+            ssum,
             intermediate: _,
         } = self.config;
 
@@ -504,6 +552,23 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     }
 
                     for (offset, step) in trace.exe.iter().enumerate() {
+                        for c in self.config.intermediate.iter() {
+                            // Zero fill all the intermediate columns.
+                            // We will reassign the ones we use.
+                            // This works around the unassigned cell error.
+                            //
+                            // A better long term fix is improving the mock prover
+                            // by using `with_selector` instead of the any `Selector` heuristic
+                            region
+                                .assign_advice(
+                                    || "default fill",
+                                    *c,
+                                    offset,
+                                    || Ok(F::zero()),
+                                )
+                                .unwrap();
+                        }
+
                         region
                             .assign_advice(
                                 || format!("time: {}", step.time.0),
@@ -587,8 +652,30 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             let ta = F::from_u128(ta as u128);
                             let tb = F::from_u128(tb as u128);
-                            let tc = F::from_u128((tc) as u128);
+                            let tc = F::from_u128(tc as u128);
                             let td = F::from_u128(td as u128);
+                            if offset == 1 {
+                                eprintln!(
+                                    "a: {}, offset: {}",
+                                    ta.get_lower_128(),
+                                    offset
+                                );
+                                eprintln!(
+                                    "b: {}, offset: {}",
+                                    tb.get_lower_128(),
+                                    offset
+                                );
+                                eprintln!(
+                                    "c: {}, offset: {}",
+                                    tc.get_lower_128(),
+                                    offset
+                                );
+                                eprintln!(
+                                    "d: {}, offset: {}",
+                                    td.get_lower_128(),
+                                    offset
+                                );
+                            }
 
                             region
                                 .assign_advice(
@@ -619,35 +706,21 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("d: {:?}", td),
                                     d,
                                     offset,
-                                    || Ok(td),
+                                    || Ok(dbg!(td)),
                                 )
                                 .unwrap();
-
-                            for c in self.config.intermediate.iter() {
-                                // Zero fill all the intermediate columns.
-                                // We will reassign the ones we use.
-                                // This works around the unassigned cell error.
-                                //
-                                // A better long term fix is improving the mock prover
-                                // by using `with_selector` instead of the any `Selector` heuristic
-                                region
-                                    .assign_advice(
-                                        || "default fill",
-                                        *c,
-                                        offset,
-                                        || Ok(F::zero()),
-                                    )
-                                    .unwrap();
-                            }
 
                             match step.instruction {
                                 Instruction::And(_) => {
                                     and.assign_and(&mut region, ta, tb, offset);
                                 }
+                                // SUM uses only temporary variables
                                 Instruction::Add(_)
                                 | Instruction::Sub(_)
-                                | Instruction::Cmpa(_) => {
-                                    sum.assign_sum(&mut region, F::zero(), offset);
+                                | Instruction::Cmpa(_)
+                                | Instruction::Cmpae(_) => {}
+                                Instruction::Cmpg(_) | Instruction::Cmpge(_) => {
+                                    ssum.assign_sum(&mut region, ta, tc, offset);
                                 }
                                 // TODO
                                 _ => {}
@@ -772,9 +845,8 @@ mod tests {
         assert_eq!(trace.ans.0, 1);
         trace
     }
-
-    fn mov_add_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
-        a: u32,
+    fn mov_ins_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        ins: Instruction,
         b: u32,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         let prog = Program(vec![
@@ -782,11 +854,7 @@ mod tests {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(b)),
             }),
-            Instruction::Add(Add {
-                ri: RegName(1),
-                rj: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(a)),
-            }),
+            ins,
             Instruction::Answer(Answer {
                 a: ImmediateOrRegName::Immediate(Word(1)),
             }),
@@ -795,76 +863,86 @@ mod tests {
         let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
         assert_eq!(trace.ans.0, 1);
         trace
+    }
+
+    fn mov_add_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Add(Add {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
     }
 
     fn mov_sub_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
         a: u32,
         b: u32,
     ) -> Trace<WORD_BITS, REG_COUNT> {
-        let prog = Program(vec![
-            Instruction::Mov(Mov {
-                ri: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(b)),
-            }),
+        mov_ins_answer(
             Instruction::Sub(Sub {
                 ri: RegName(1),
                 rj: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(a)),
             }),
-            Instruction::Answer(Answer {
-                a: ImmediateOrRegName::Immediate(Word(1)),
-            }),
-        ]);
-
-        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
-        assert_eq!(trace.ans.0, 1);
-        trace
+            b,
+        )
     }
 
     fn mov_cmpa_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
         a: u32,
         b: u32,
     ) -> Trace<WORD_BITS, REG_COUNT> {
-        let prog = Program(vec![
-            Instruction::Mov(Mov {
-                ri: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(b)),
-            }),
+        mov_ins_answer(
             Instruction::Cmpa(Cmpa {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(a)),
             }),
-            Instruction::Answer(Answer {
-                a: ImmediateOrRegName::Immediate(Word(1)),
-            }),
-        ]);
-
-        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
-        assert_eq!(trace.ans.0, 1);
-        trace
+            b,
+        )
     }
 
     fn mov_cmpae_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
         a: u32,
         b: u32,
     ) -> Trace<WORD_BITS, REG_COUNT> {
-        let prog = Program(vec![
-            Instruction::Mov(Mov {
-                ri: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(b)),
-            }),
+        mov_ins_answer(
             Instruction::Cmpae(Cmpae {
                 ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(a)),
             }),
-            Instruction::Answer(Answer {
-                a: ImmediateOrRegName::Immediate(Word(1)),
-            }),
-        ]);
+            b,
+        )
+    }
 
-        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
-        assert_eq!(trace.ans.0, 1);
-        trace
+    fn mov_cmpg_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpg(Cmpg {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_cmpge_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpge(Cmpge {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
     }
 
     // #[test]
@@ -954,10 +1032,29 @@ mod tests {
             mock_prover_test::<8, 8>(mov_cmpa_answer(a, b))
         }
 
-
         #[test]
         fn mov_cmpae_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
             mock_prover_test::<8, 8>(mov_cmpae_answer(a, b))
         }
+
+        // #[test]
+        // fn mov_cmpg_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+        //     mock_prover_test::<8, 8>(mov_cmpg_answer(a, b))
+        // }
+
+        // #[test]
+        // fn mov_cmpge_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+        //     mock_prover_test::<8, 8>(mov_cmpge_answer(a, b))
+        // }
+    }
+
+    #[test]
+    fn mov_cmpg_answer_mock_prover() {
+        mock_prover_test::<8, 8>(mov_cmpg_answer(0, 1))
+    }
+
+    #[test]
+    fn mov_cmpg_answer_mock_prover_one() {
+        mock_prover_test::<8, 8>(mov_cmpg_answer(1, 0))
     }
 }

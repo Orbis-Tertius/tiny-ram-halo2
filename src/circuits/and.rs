@@ -19,11 +19,11 @@ use super::tables::even_bits::EvenBitsTable;
 pub struct AndConfig<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
-    /// An advice columns that acts as a selector for Annd's gates.
+    /// An advice columns that acts as a selector for And's gates.
     /// `Out.and`
     s_and: Column<Advice>,
 
-    a: EvenBitsConfig<WORD_BITS>,
+    pub a: EvenBitsConfig<WORD_BITS>,
     b: EvenBitsConfig<WORD_BITS>,
 
     /// lhs_e + rhs_e
@@ -137,8 +137,8 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         rhs: F,
         offset: usize,
     ) -> AssignedCell<F, F> {
-        let (lhs_e, lhs_o) = self.a.assign_decompose(region, offset, lhs);
-        let (rhs_e, rhs_o) = self.b.assign_decompose(region, offset, rhs);
+        let (lhs_e, lhs_o) = self.a.assign_decompose(region, lhs, offset);
+        let (rhs_e, rhs_o) = self.b.assign_decompose(region, rhs, offset);
 
         let even_sum = *lhs_e + *rhs_e;
         region
@@ -149,7 +149,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
                 || Ok(even_sum),
             )
             .unwrap();
-        self.even_sum.assign_decompose(region, offset, even_sum);
+        self.even_sum.assign_decompose(region, even_sum, offset);
 
         let odd_sum = *lhs_o + *rhs_o;
         region
@@ -160,7 +160,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
                 || Ok(odd_sum),
             )
             .unwrap();
-        self.odd_sum.assign_decompose(region, offset, odd_sum);
+        self.odd_sum.assign_decompose(region, odd_sum, offset);
 
         let res = F::from_u128(lhs.get_lower_128() & rhs.get_lower_128());
         let res = region
