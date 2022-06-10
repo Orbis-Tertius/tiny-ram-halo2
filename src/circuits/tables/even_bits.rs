@@ -173,8 +173,8 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     pub fn assign_decompose<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        offset: usize,
         word: F,
+        offset: usize,
     ) -> (EvenBits<F>, OddBits<F>) {
         let (e, o) = decompose(word);
         let _ = region
@@ -405,7 +405,7 @@ mod mem_test {
                                     || Ok(dbg!(word)),
                                 )
                                 .unwrap();
-                            config.assign_decompose(&mut region, 0, word);
+                            config.assign_decompose(&mut region, word, 0);
                         };
                         Ok(())
                     },

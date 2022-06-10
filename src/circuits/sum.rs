@@ -1,5 +1,4 @@
 use crate::assign::ConstraintSys;
-use halo2_proofs::circuit::Region;
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::plonk::Constraints;
 use halo2_proofs::{
@@ -17,8 +16,8 @@ use std::marker::PhantomData;
 pub struct SumConfig<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
-    /// An advice columns that acts as a selector for Annd's gates.
-    /// `Out.and`
+    /// An advice columns that acts as a selector for sum's gates.
+    /// `Out.sum`
     s_sum: Column<Advice>,
 
     a: Column<Advice>,
@@ -95,17 +94,6 @@ impl<const WORD_BITS: u32> SumConfig<WORD_BITS> {
         });
 
         conf
-    }
-
-    pub fn assign_sum<F: FieldExt>(
-        &self,
-        region: &mut Region<'_, F>,
-        d: F,
-        offset: usize,
-    ) {
-        region
-            .assign_advice(|| "sum d", self.d, offset, || Ok(d))
-            .unwrap();
     }
 }
 
@@ -213,6 +201,9 @@ impl<const WORD_BITS: u32> Circuit<Fp> for SumCircuit<Fp, WORD_BITS> {
                         region
                             .assign_advice(|| "b", config.0.b, 0, || Ok(b))
                             .unwrap();
+                        region
+                            .assign_advice(|| "d", config.0.d, 0, || Ok(Fp::zero()))
+                            .unwrap();
 
                         region
                             .assign_advice(
@@ -222,8 +213,6 @@ impl<const WORD_BITS: u32> Circuit<Fp> for SumCircuit<Fp, WORD_BITS> {
                                 || Ok(Fp::zero()),
                             )
                             .unwrap();
-
-                        config.0.assign_sum(&mut region, Fp::zero(), 0);
                     }
 
                     region
@@ -266,7 +255,13 @@ mod tests {
               (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
               -> (u64, u64, u64, bool) {
         let c = a + b;
-        let flag = c >= 3u64.pow(word_bits);
+        let max = 2u64.pow(word_bits);
+        let (c, flag) = if c >= max  {
+            (c - max, true)
+        } else {
+            (c, false)
+        };
+
         (a, b, c, flag)
       }
     }
