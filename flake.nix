@@ -3,7 +3,7 @@
     {
       # cargo2nix.url = "github:cargo2nix/cargo2nix";
       # We have to use the fork to fix nix build https://github.com/cargo2nix/cargo2nix/issues/233
-      cargo2nix.url = "github:flibrary/cargo2nix";
+      cargo2nix.url = "github:cargo2nix/cargo2nix";
       nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
       nixpkgs-master.url = "github:NixOS/nixpkgs/master";
       rust-overlay.url = "github:oxalica/rust-overlay";
