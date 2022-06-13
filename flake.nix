@@ -1,9 +1,7 @@
 {
   inputs =
     {
-      # cargo2nix.url = "github:cargo2nix/cargo2nix";
-      # We have to use the fork to fix nix build https://github.com/cargo2nix/cargo2nix/issues/233
-      cargo2nix.url = "github:flibrary/cargo2nix";
+      cargo2nix.url = "github:cargo2nix/cargo2nix/release-0.11.0";
       nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
       nixpkgs-master.url = "github:NixOS/nixpkgs/master";
       rust-overlay.url = "github:oxalica/rust-overlay";
@@ -20,7 +18,7 @@
               {
                 overlays =
                   [
-                    (import "${cargo2nix}/overlay")
+                    cargo2nix.overlays.default
                     rust-overlay.overlay
                   ];
 
@@ -28,9 +26,9 @@
               };
             pkgs-master = import nixpkgs-master { inherit system; };
 
-          rustChannel = "1.60.0";
+          rustChannel = "1.61.0";
           rustPkgs =
-            pkgs.rustBuilder.makePackageSet'
+            pkgs.rustBuilder.makePackageSet
               {
                 inherit rustChannel;
                 packageFun = import ./Cargo.nix;
@@ -108,7 +106,7 @@
             in
             rustPkgs.workspaceShell {
               # inherit rustChannel;
-              nativeBuildInputs = [ pkgs-master.rust-analyzer ] ++ (with pkgs; [ rustup cargo2nix.defaultPackage.${system} graphviz ]);
+              nativeBuildInputs = [ pkgs-master.rust-analyzer ] ++ (with pkgs; [ rustup cargo2nix.packages.${system}.default graphviz ]);
               shellHook =
                 ''
                   cp --no-preserve=mode ${rust-toolchain} rust-toolchain.toml
