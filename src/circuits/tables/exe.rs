@@ -340,12 +340,22 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let even_bits = EvenBitsTable::new(meta);
 
             let mut meta = TrackColumns::new(meta);
+
+            let a_decomp = EvenBitsConfig::configure(
+                &mut meta,
+                a,
+                // The even_bits decomposition of `a` should be enabled anytime signed `a` is.
+                &[temp_var_selectors.out.and, temp_var_selectors.out.ssum],
+                exe_len,
+                even_bits,
+            );
+
             let and = AndConfig::configure(
                 &mut meta,
                 even_bits,
                 table_max_len,
                 temp_var_selectors.out.and,
-                a,
+                a_decomp,
                 b,
                 c,
             );
@@ -364,34 +374,24 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let signed_a = SignedConfig::configure(
                 &mut meta,
                 exe_len,
-                |meta| {
-                    meta.query_advice(temp_var_selectors.out.and, Rotation::cur())
-                        * meta.query_advice(
-                            temp_var_selectors.out.ssum,
-                            Rotation::cur(),
-                        )
-                },
+                &[temp_var_selectors.out.ssum],
                 and.a,
+                even_bits,
             );
 
             let c_decomp = EvenBitsConfig::configure(
                 &mut meta,
                 c,
-                temp_var_selectors.out.ssum,
+                &[temp_var_selectors.out.ssum],
                 exe_len,
                 even_bits,
             );
             let signed_c = SignedConfig::configure(
                 &mut meta,
                 exe_len,
-                |meta| {
-                    meta.query_advice(temp_var_selectors.out.and, Rotation::cur())
-                        * meta.query_advice(
-                            temp_var_selectors.out.ssum,
-                            Rotation::cur(),
-                        )
-                },
+                &[temp_var_selectors.out.ssum],
                 c_decomp,
+                even_bits,
             );
 
             let ssum = SSumConfig::<WORD_BITS>::configure(
@@ -564,7 +564,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || "default fill",
                                     *c,
                                     offset,
-                                    || Ok(F::zero()),
+                                    || Ok(F::from(u64::MAX)),
                                 )
                                 .unwrap();
                         }
@@ -920,15 +920,15 @@ mod tests {
     }
 
     fn mov_cmpg_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
-        a: u32,
-        b: u32,
+        a: Word,
+        b: Word,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         mov_ins_answer(
             Instruction::Cmpg(Cmpg {
                 ri: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(a)),
+                a: ImmediateOrRegName::Immediate(a),
             }),
-            b,
+            b.0,
         )
     }
 
@@ -1037,24 +1037,32 @@ mod tests {
             mock_prover_test::<8, 8>(mov_cmpae_answer(a, b))
         }
 
-        // #[test]
-        // fn mov_cmpg_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
-        //     mock_prover_test::<8, 8>(mov_cmpg_answer(a, b))
-        // }
+        #[test]
+        fn mov_cmpg_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpg_answer(Word(a), Word(b)))
+        }
 
         // #[test]
         // fn mov_cmpge_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
-        //     mock_prover_test::<8, 8>(mov_cmpge_answer(a, b))
+        //     mock_prover_test::<8, 8>(mov_cmpge_answer(Word(a), Word(b)))
         // }
     }
 
-    #[test]
-    fn mov_cmpg_answer_mock_prover() {
-        mock_prover_test::<8, 8>(mov_cmpg_answer(0, 1))
-    }
+    // #[test]
+    // fn mov_cmpg_answer_mock_prover() {
+    //     mock_prover_test::<8, 8>(mov_cmpg_answer(Word(0), Word(1)))
+    // }
 
-    #[test]
-    fn mov_cmpg_answer_mock_prover_one() {
-        mock_prover_test::<8, 8>(mov_cmpg_answer(1, 0))
-    }
+    // #[test]
+    // fn mov_cmpg_answer_mock_prover_one() {
+    //     mock_prover_test::<8, 8>(mov_cmpg_answer(Word(1), Word(0)))
+    // }
+
+    // #[test]
+    // fn mov_cmpg_answer_mock_prover_neg_one() {
+    //     mock_prover_test::<8, 8>(mov_cmpg_answer(
+    //         Word::from_signed::<8>(-1).unwrap(),
+    //         Word(0),
+    //     ))
+    // }
 }

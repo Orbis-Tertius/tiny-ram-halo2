@@ -1,3 +1,4 @@
+use proptest::proptest;
 use std::{
     collections::BTreeMap,
     fmt::Display,
@@ -6,6 +7,37 @@ use std::{
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Word(pub u32);
+
+impl Word {
+    pub fn from_signed<const WORD_BITS: u32>(s: i64) -> Option<Word> {
+        let min = -2i64.pow(WORD_BITS - 1);
+        if s > -min - 1 || s < min {
+            None
+        } else if s >= 0 {
+            Some(Word(s as u32))
+        } else {
+            let u = 2i64.pow(WORD_BITS);
+            Some(Word((s + u) as u32))
+        }
+    }
+}
+
+proptest! {
+    #[test]
+    fn from_signed_test(s in -2i64.pow(8 - 1)..2i64.pow(8 - 1) - 1) {
+        assert_eq!(Word::from_signed::<8>(s.into()), Some(Word(s as i8 as u8 as u32)));
+    }
+
+    #[test]
+    fn from_signed_test_too_high(s in 2i64.pow(8 - 1)..i64::MAX) {
+        assert_eq!(Word::from_signed::<8>(s.into()), None);
+    }
+
+    #[test]
+    fn from_signed_test_too_low(s in i64::MIN..(-2i64.pow(8 - 1)) - 1) {
+        assert_eq!(Word::from_signed::<8>(s.into()), None);
+    }
+}
 
 impl From<Word> for u128 {
     fn from(w: Word) -> Self {
