@@ -43,18 +43,17 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         s_table: Selector,
         s_and: Column<Advice>,
 
-        a: Column<Advice>,
+        a: EvenBitsConfig<WORD_BITS>,
         b: Column<Advice>,
         res: Column<Advice>,
     ) -> Self {
-        let a = EvenBitsConfig::configure(meta, a, s_and, s_table, even_bits);
-        let b = EvenBitsConfig::configure(meta, b, s_and, s_table, even_bits);
+        let b = EvenBitsConfig::configure(meta, b, &[s_and], s_table, even_bits);
 
         let even_sum = meta.new_column();
         let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             even_sum,
-            s_and,
+            &[s_and],
             s_table,
             a.even_bits,
         );
@@ -63,7 +62,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             odd_sum,
-            s_and,
+            &[s_and],
             s_table,
             a.even_bits,
         );
@@ -85,7 +84,7 @@ impl<const WORD_BITS: u32> AndConfig<WORD_BITS> {
         s_table: Selector,
         s_and: Column<Advice>,
 
-        a: Column<Advice>,
+        a: EvenBitsConfig<WORD_BITS>,
         b: Column<Advice>,
         res: Column<Advice>,
     ) -> Self {
@@ -235,6 +234,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for AndCircuit<Fp, WORD_BITS> {
 
         let a = meta.advice_column();
         meta.enable_equality(a);
+        let a = EvenBitsConfig::configure(meta, a, &[s_and], s_table, even_bits);
 
         let b = meta.advice_column();
         meta.enable_equality(b);

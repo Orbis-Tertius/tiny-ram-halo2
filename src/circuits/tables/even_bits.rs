@@ -5,6 +5,7 @@ use halo2_proofs::{
     circuit::{AssignedCell, Chip, Layouter, Region},
     plonk::{
         Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn,
+        VirtualCells,
     },
     poly::Rotation,
 };
@@ -92,7 +93,6 @@ pub struct EvenBitsConfig<const WORD_BITS: u32> {
     pub odd: Column<Advice>,
     pub even_bits: EvenBitsTable<WORD_BITS>,
 
-    pub s_even_bits: Column<Advice>,
     pub s_table: Selector,
 }
 
@@ -100,7 +100,7 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     pub fn new<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
-        s_even_bits: Column<Advice>,
+        _s_even_bits: &[Column<Advice>],
         // A complex selector denoting the extent in rows of the table to decompse.
         s_table: Selector,
         even_bits: EvenBitsTable<WORD_BITS>,
@@ -112,7 +112,6 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             even,
             odd,
             even_bits,
-            s_even_bits,
             s_table,
         }
     }
@@ -120,7 +119,7 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
-        s_even_bits: Column<Advice>,
+        s_even_bits: &[Column<Advice>],
         // A complex selector denoting the extent in rows of the table to decompse.
         s_table: Selector,
         even_bits: EvenBitsTable<WORD_BITS>,
@@ -130,40 +129,40 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             even,
             odd,
             even_bits,
-            s_even_bits,
             s_table,
         } = Self::new(meta, word, s_even_bits, s_table, even_bits);
 
         let meta = meta.cs();
 
-        meta.create_gate("decompose", |meta| {
+        let s_even_bits = |meta: &mut VirtualCells<F>| -> Expression<F> {
             let s_table = meta.query_selector(s_table);
-            let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
+            s_even_bits
+                .into_iter()
+                .map(|c| meta.query_advice(*c, Rotation::cur()))
+                .fold(s_table, |e, c| e * c)
+        };
+
+        meta.create_gate("decompose", |meta| {
+            let s_even_bits = s_even_bits(meta);
             let lhs = meta.query_advice(even, Rotation::cur());
             let rhs = meta.query_advice(odd, Rotation::cur());
             let out = meta.query_advice(word, Rotation::cur());
 
-            vec![
-                s_table
-                    * s_even_bits
-                    * (lhs + Expression::Constant(F::from(2)) * rhs - out),
-            ]
+            vec![s_even_bits * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
         });
 
         let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_table);
-            let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
+            let s_even_bits = s_even_bits(meta);
             let e = meta.query_advice(even, Rotation::cur());
 
-            vec![(lookup * s_even_bits * e, even_bits.0)]
+            vec![(s_even_bits * e, even_bits.0)]
         });
 
         let _ = meta.lookup(|meta| {
-            let lookup = meta.query_selector(s_table);
-            let s_even_bits = meta.query_advice(s_even_bits, Rotation::cur());
+            let s_even_bits = s_even_bits(meta);
             let o = meta.query_advice(odd, Rotation::cur());
 
-            vec![(lookup * s_even_bits * o, even_bits.0)]
+            vec![(s_even_bits * o, even_bits.0)]
         });
 
         conf
@@ -358,14 +357,13 @@ mod mem_test {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let word = meta.advice_column();
-            let s_even_bits = meta.advice_column();
             let s_table = meta.complex_selector();
             let even_bits = EvenBitsTable::new(meta);
 
             EvenBitsConfig::<WORD_BITS>::configure(
                 meta,
                 word,
-                s_even_bits,
+                &[],
                 s_table,
                 even_bits,
             )
@@ -376,7 +374,6 @@ mod mem_test {
             config: Self::Config,
             mut layouter: impl Layouter<F>,
         ) -> Result<(), Error> {
-            // let field_chip = AndChip::<F>::construct(config);
             let field_chip = EvenBitsChip::<F, WORD_BITS>::construct(config);
             field_chip
                 .config
@@ -389,14 +386,6 @@ mod mem_test {
                     |mut region| {
                         config.s_table.enable(&mut region, 0)?;
                         if let Some(word) = self.input {
-                            region
-                                .assign_advice(
-                                    || "s_even_bits",
-                                    config.s_even_bits,
-                                    0,
-                                    || Ok(F::one()),
-                                )
-                                .unwrap();
                             region
                                 .assign_advice(
                                     || "word",

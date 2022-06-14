@@ -1,5 +1,4 @@
 use crate::assign::ConstraintSys;
-use crate::trace::get_word_size_bit_mask_msb;
 use halo2_proofs::circuit::Region;
 use halo2_proofs::plonk::{Constraints, VirtualCells};
 use halo2_proofs::{
@@ -8,7 +7,7 @@ use halo2_proofs::{
     poly::Rotation,
 };
 
-use super::even_bits::EvenBitsConfig;
+use super::even_bits::{EvenBitsConfig, EvenBitsTable};
 
 #[derive(Debug, Clone, Copy)]
 pub struct SignedConfig<const WORD_BITS: u32> {
@@ -18,51 +17,88 @@ pub struct SignedConfig<const WORD_BITS: u32> {
     /// Denoted σ_column in the paper.
     pub msb: Column<Advice>,
     pub word_sigma: Column<Advice>,
+    pub check_sign: EvenBitsConfig<WORD_BITS>,
 }
 
 impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
     pub fn new<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,
+        s_signed: &[Column<Advice>],
         word: EvenBitsConfig<WORD_BITS>,
+        even_bits: EvenBitsTable<WORD_BITS>,
     ) -> Self {
         let msb = meta.new_column();
         let word_sigma = meta.new_column();
+
+        let check_sign_exp = meta.new_column();
+        let check_sign = EvenBitsConfig::configure(
+            meta,
+            check_sign_exp,
+            s_signed,
+            s_table,
+            even_bits,
+        );
         Self {
             s_table,
             word,
             msb,
             word_sigma,
+            check_sign,
         }
     }
 
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,
-        s_signed: impl Fn(&mut VirtualCells<F>) -> Expression<F>,
+        s_signed: &[Column<Advice>],
         word: EvenBitsConfig<WORD_BITS>,
+        even_bits: EvenBitsTable<WORD_BITS>,
     ) -> Self {
         let conf @ Self {
             s_table,
             word,
             msb,
             // Don't we need to constrain word_sigma?
-            word_sigma: _,
-        } = Self::new(meta, s_table, word);
+            word_sigma,
+            check_sign,
+        } = Self::new(meta, s_table, s_signed, word, even_bits);
+
+        let s_signed = |meta: &mut VirtualCells<F>| -> Expression<F> {
+            let s_table = meta.query_selector(s_table);
+            s_signed
+                .into_iter()
+                .map(|c| meta.query_advice(*dbg!(c), Rotation::cur()))
+                .fold(s_table, |e, c| e * c)
+        };
 
         meta.cs().create_gate("signed", |meta| {
-            let s_table = meta.query_selector(s_table);
-            let s_signed = s_signed(meta);
-
-            let word_odd = meta.query_advice(word.odd, Rotation::cur());
-            let msb = meta.query_advice(msb, Rotation::cur());
-
             let one = Expression::Constant(F::one());
             let two = Expression::Constant(F::from_u128(2));
+            let max = Expression::Constant(F::from_u128(2u128.pow(WORD_BITS)));
+
+            let word_odd = meta.query_advice(dbg!(word.odd), Rotation::cur());
+            let msb = meta.query_advice(dbg!(msb), Rotation::cur());
+            let word_sigma = meta.query_advice(dbg!(word_sigma), Rotation::cur());
+            let word_sigma =
+                -msb.clone() * two.clone() * word_sigma.clone() + word_sigma.clone();
+
+            let word = meta.query_advice(dbg!(word.word), Rotation::cur());
+            let check_sign =
+                meta.query_advice(dbg!(check_sign.word), Rotation::cur());
+
+            // TODO Do we need to range check this?
             Constraints::with_selector(
-                s_table * s_signed,
-                [word_odd
-                    + (one - (two * msb)) * F::from_u128(2u128.pow(WORD_BITS - 2))],
+                s_signed(meta),
+                [
+                    (-msb.clone() * max + word) - word_sigma,
+                    (word_odd
+                        + (one - two * msb)
+                            * Expression::Constant(F::from(
+                                2u64.pow(WORD_BITS - 2),
+                            ))
+                        - check_sign),
+                ],
             )
         });
 
@@ -75,27 +111,52 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
         word: u128,
         offset: usize,
     ) {
-        let msb = get_word_size_bit_mask_msb::<WORD_BITS>() & word;
+        let msb = (word >> (WORD_BITS - 1)) & 1;
 
+        eprintln!("word: {:#08b}", word);
         region
             .assign_advice(|| "msb", self.msb, offset, || Ok(F::from_u128(msb)))
             .unwrap();
 
+        // -msb * 2word_sigma + word_sigma
+        //
+
         // See page 28
         let word_sigma = -(msb as i128) * 2i128.pow(WORD_BITS) + word as i128;
-        let word_sigma = if word_sigma > 0 {
+        eprintln!("word_σ: {}, word: {}, msb: {}", word_sigma, word, msb);
+        let word_sigma = if word_sigma >= 0 {
             word_sigma as u128
         } else {
-            (2i128.pow(WORD_BITS) + word_sigma) as u128
+            -word_sigma as u128
         };
 
-        eprintln!("word_σ: {}, word: {}", word_sigma, word);
+        eprintln!("word_σ: {}, word: {}, msb: {}", word_sigma, word, msb);
         region
             .assign_advice(
                 || "word_sigma",
                 self.word_sigma,
                 offset,
                 || Ok(F::from_u128(word_sigma)),
+            )
+            .unwrap();
+
+        let (_e, o) = self
+            .word
+            .assign_decompose(region, F::from_u128(word), offset);
+
+        let cs = dbg!(o.0.get_lower_128() as i128)
+            + (1 - 2 * (msb as i128)) * 2i128.pow(WORD_BITS - 2);
+        assert!(cs >= 0);
+        eprintln!("cs: {}, word: {}", cs, word);
+        let cs = F::from_u128(cs as u128);
+
+        self.check_sign.assign_decompose(region, cs, offset);
+        region
+            .assign_advice(
+                || "check_sign",
+                dbg!(self.check_sign.word),
+                offset,
+                || Ok(cs),
             )
             .unwrap();
     }
