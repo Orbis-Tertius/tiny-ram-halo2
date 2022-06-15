@@ -68,8 +68,12 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
             let s_table = meta.query_selector(s_table);
             s_signed
                 .into_iter()
-                .map(|c| meta.query_advice(*dbg!(c), Rotation::cur()))
-                .fold(s_table, |e, c| e * c)
+                .map(|c| meta.query_advice(*c, Rotation::cur()))
+                .fold(None, |e, c| {
+                    e.map(|e| Some(e + c.clone())).unwrap_or(Some(c))
+                })
+                .map(|e| s_table.clone() * (e))
+                .unwrap_or(s_table)
         };
 
         meta.cs().create_gate("signed", |meta| {
