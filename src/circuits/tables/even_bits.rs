@@ -139,7 +139,11 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             s_even_bits
                 .into_iter()
                 .map(|c| meta.query_advice(*c, Rotation::cur()))
-                .fold(s_table, |e, c| e * c)
+                .fold(None, |e, c| {
+                    e.map(|e| Some(e + c.clone())).unwrap_or(Some(c))
+                })
+                .map(|e| s_table.clone() * (e))
+                .unwrap_or(s_table)
         };
 
         meta.create_gate("decompose", |meta| {

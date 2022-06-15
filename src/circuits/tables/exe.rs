@@ -815,7 +815,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 mod tests {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::pasta::Fp;
-    use proptest::proptest;
+    use proptest::{prop_compose, proptest};
 
     use crate::{
         circuits::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
@@ -933,15 +933,15 @@ mod tests {
     }
 
     fn mov_cmpge_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
-        a: u32,
-        b: u32,
+        a: Word,
+        b: Word,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         mov_ins_answer(
             Instruction::Cmpge(Cmpge {
                 ri: RegName(0),
-                a: ImmediateOrRegName::Immediate(Word(a)),
+                a: ImmediateOrRegName::Immediate(a),
             }),
-            b,
+            b.0,
         )
     }
 
@@ -1011,6 +1011,14 @@ mod tests {
         ]);
     }
 
+    prop_compose! {
+      fn signed_word(word_bits: u32)
+         (a in -2i32.pow(word_bits - 1)..2i32.pow(word_bits - 1) - 1)
+      -> Word {
+          Word::_try_from_signed(a, word_bits).unwrap()
+      }
+    }
+
     proptest! {
         #[test]
         fn load_and_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
@@ -1038,31 +1046,13 @@ mod tests {
         }
 
         #[test]
-        fn mov_cmpg_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
-            mock_prover_test::<8, 8>(mov_cmpg_answer(Word(a), Word(b)))
+        fn mov_cmpg_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_cmpg_answer(a, b))
         }
 
-        // #[test]
-        // fn mov_cmpge_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
-        //     mock_prover_test::<8, 8>(mov_cmpge_answer(Word(a), Word(b)))
-        // }
+        #[test]
+        fn mov_cmpge_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_cmpge_answer(a, b))
+        }
     }
-
-    // #[test]
-    // fn mov_cmpg_answer_mock_prover() {
-    //     mock_prover_test::<8, 8>(mov_cmpg_answer(Word(0), Word(1)))
-    // }
-
-    // #[test]
-    // fn mov_cmpg_answer_mock_prover_one() {
-    //     mock_prover_test::<8, 8>(mov_cmpg_answer(Word(1), Word(0)))
-    // }
-
-    // #[test]
-    // fn mov_cmpg_answer_mock_prover_neg_one() {
-    //     mock_prover_test::<8, 8>(mov_cmpg_answer(
-    //         Word::from_signed::<8>(-1).unwrap(),
-    //         Word(0),
-    //     ))
-    // }
 }

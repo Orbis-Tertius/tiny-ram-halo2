@@ -9,14 +9,20 @@ use std::{
 pub struct Word(pub u32);
 
 impl Word {
-    pub fn from_signed<const WORD_BITS: u32>(s: i64) -> Option<Word> {
-        let min = -2i64.pow(WORD_BITS - 1);
+    pub fn try_from_signed<const WORD_BITS: u32>(s: i32) -> Option<Word> {
+        Self::_try_from_signed(s, WORD_BITS)
+    }
+
+    /// Only use this in proptests.
+    /// Hopefully proptest will add support for const.
+    pub fn _try_from_signed(s: i32, word_bits: u32) -> Option<Word> {
+        let min = -2i32.pow(word_bits - 1);
         if s > -min - 1 || s < min {
             None
         } else if s >= 0 {
             Some(Word(s as u32))
         } else {
-            let u = 2i64.pow(WORD_BITS);
+            let u = 2i32.pow(word_bits);
             Some(Word((s + u) as u32))
         }
     }
@@ -24,18 +30,18 @@ impl Word {
 
 proptest! {
     #[test]
-    fn from_signed_test(s in -2i64.pow(8 - 1)..2i64.pow(8 - 1) - 1) {
-        assert_eq!(Word::from_signed::<8>(s.into()), Some(Word(s as i8 as u8 as u32)));
+    fn from_signed_test(s in -2i32.pow(8 - 1)..2i32.pow(8 - 1) - 1) {
+        assert_eq!(Word::try_from_signed::<8>(s.into()), Some(Word(s as i8 as u8 as u32)));
     }
 
     #[test]
-    fn from_signed_test_too_high(s in 2i64.pow(8 - 1)..i64::MAX) {
-        assert_eq!(Word::from_signed::<8>(s.into()), None);
+    fn from_signed_test_too_high(s in 2i32.pow(8 - 1)..i32::MAX) {
+        assert_eq!(Word::try_from_signed::<8>(s.into()), None);
     }
 
     #[test]
-    fn from_signed_test_too_low(s in i64::MIN..(-2i64.pow(8 - 1)) - 1) {
-        assert_eq!(Word::from_signed::<8>(s.into()), None);
+    fn from_signed_test_too_low(s in i32::MIN..(-2i32.pow(8 - 1)) - 1) {
+        assert_eq!(Word::try_from_signed::<8>(s.into()), None);
     }
 }
 
