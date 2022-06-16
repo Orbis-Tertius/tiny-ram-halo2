@@ -73,20 +73,20 @@ impl<const WORD_BITS: u32> SSumConfig<WORD_BITS> {
             let two = Expression::Constant(F::from_u128(2));
 
             let s_table = meta.query_selector(s_table);
-            let s_sum = dbg!(meta.query_advice(s_sum, Rotation::cur()));
+            let s_sum = meta.query_advice(s_sum, Rotation::cur());
 
-            let a_sigma = dbg!(meta.query_advice(a.word_sigma, Rotation::cur()));
+            let a_sigma = meta.query_advice(a.word_sigma, Rotation::cur());
             let a_msb = meta.query_advice(a.msb, Rotation::cur());
             let a_sigma = -a_msb * two.clone() * a_sigma.clone() + a_sigma;
 
-            let b = dbg!(meta.query_advice(b, Rotation::cur()));
+            let b = meta.query_advice(b, Rotation::cur());
 
-            let c_sigma = dbg!(meta.query_advice(c.word_sigma, Rotation::cur()));
+            let c_sigma = meta.query_advice(c.word_sigma, Rotation::cur());
             let c_msb = meta.query_advice(c.msb, Rotation::cur());
             let c_sigma = -c_msb * two.clone() * c_sigma.clone() + c_sigma;
 
-            let d = dbg!(meta.query_advice(d, Rotation::cur()));
-            let flag_n = dbg!(meta.query_advice(flag, Rotation::next()));
+            let d = meta.query_advice(d, Rotation::cur());
+            let flag_n = meta.query_advice(flag, Rotation::next());
 
             Constraints::with_selector(
                 s_table * s_sum,

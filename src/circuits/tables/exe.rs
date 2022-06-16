@@ -654,28 +654,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             let tb = F::from_u128(tb as u128);
                             let tc = F::from_u128(tc as u128);
                             let td = F::from_u128(td as u128);
-                            if offset == 1 {
-                                eprintln!(
-                                    "a: {}, offset: {}",
-                                    ta.get_lower_128(),
-                                    offset
-                                );
-                                eprintln!(
-                                    "b: {}, offset: {}",
-                                    tb.get_lower_128(),
-                                    offset
-                                );
-                                eprintln!(
-                                    "c: {}, offset: {}",
-                                    tc.get_lower_128(),
-                                    offset
-                                );
-                                eprintln!(
-                                    "d: {}, offset: {}",
-                                    td.get_lower_128(),
-                                    offset
-                                );
-                            }
 
                             region
                                 .assign_advice(
@@ -706,7 +684,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("d: {:?}", td),
                                     d,
                                     offset,
-                                    || Ok(dbg!(td)),
+                                    || Ok(td),
                                 )
                                 .unwrap();
 
