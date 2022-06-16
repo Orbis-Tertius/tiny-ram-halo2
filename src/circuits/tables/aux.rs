@@ -693,6 +693,17 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                         tc - ta - 1
                     }) as u32
                 }
+                Instruction::Cmpge(Cmpge { ri, a: ior }) => {
+                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let tc = a(ior) as u64;
+                    // td is 1
+
+                    (if ta >= tc {
+                        2u64.pow(WORD_BITS) - 1 - (ta - tc)
+                    } else {
+                        tc - ta - 1
+                    }) as u32
+                }
                 _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionB::MaxWord => (2u64.pow(WORD_BITS) - 1) as u32,
