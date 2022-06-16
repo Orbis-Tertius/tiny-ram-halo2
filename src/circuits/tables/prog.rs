@@ -269,7 +269,6 @@ mod tests {
         let k = 1 + WORD_BITS / 2;
 
         let public = ProgChip::<Fp, WORD_BITS, REG_COUNT>::program(&trace.prog);
-        eprintln!("{:?}", public);
 
         let circuit = ProgCircuit::<WORD_BITS, REG_COUNT> {
             prog: Some(trace.prog),

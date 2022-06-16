@@ -395,7 +395,7 @@ mod mem_test {
                                     || "word",
                                     config.word,
                                     0,
-                                    || Ok(dbg!(word)),
+                                    || Ok(word),
                                 )
                                 .unwrap();
                             config.assign_decompose(&mut region, word, 0);

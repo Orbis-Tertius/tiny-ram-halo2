@@ -81,15 +81,14 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
             let two = Expression::Constant(F::from_u128(2));
             let max = Expression::Constant(F::from_u128(2u128.pow(WORD_BITS)));
 
-            let word_odd = meta.query_advice(dbg!(word.odd), Rotation::cur());
-            let msb = meta.query_advice(dbg!(msb), Rotation::cur());
-            let word_sigma = meta.query_advice(dbg!(word_sigma), Rotation::cur());
+            let word_odd = meta.query_advice(word.odd, Rotation::cur());
+            let msb = meta.query_advice(msb, Rotation::cur());
+            let word_sigma = meta.query_advice(word_sigma, Rotation::cur());
             let word_sigma =
                 -msb.clone() * two.clone() * word_sigma.clone() + word_sigma.clone();
 
-            let word = meta.query_advice(dbg!(word.word), Rotation::cur());
-            let check_sign =
-                meta.query_advice(dbg!(check_sign.word), Rotation::cur());
+            let word = meta.query_advice(word.word, Rotation::cur());
+            let check_sign = meta.query_advice(check_sign.word, Rotation::cur());
 
             // TODO Do we need to range check this?
             Constraints::with_selector(
@@ -117,24 +116,18 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
     ) {
         let msb = (word >> (WORD_BITS - 1)) & 1;
 
-        eprintln!("word: {:#08b}", word);
         region
             .assign_advice(|| "msb", self.msb, offset, || Ok(F::from_u128(msb)))
             .unwrap();
 
-        // -msb * 2word_sigma + word_sigma
-        //
-
         // See page 28
         let word_sigma = -(msb as i128) * 2i128.pow(WORD_BITS) + word as i128;
-        eprintln!("word_σ: {}, word: {}, msb: {}", word_sigma, word, msb);
         let word_sigma = if word_sigma >= 0 {
             word_sigma as u128
         } else {
             -word_sigma as u128
         };
 
-        eprintln!("word_σ: {}, word: {}, msb: {}", word_sigma, word, msb);
         region
             .assign_advice(
                 || "word_sigma",
@@ -148,20 +141,14 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
             .word
             .assign_decompose(region, F::from_u128(word), offset);
 
-        let cs = dbg!(o.0.get_lower_128() as i128)
+        let cs = (o.0.get_lower_128() as i128)
             + (1 - 2 * (msb as i128)) * 2i128.pow(WORD_BITS - 2);
         assert!(cs >= 0);
-        eprintln!("cs: {}, word: {}", cs, word);
         let cs = F::from_u128(cs as u128);
 
         self.check_sign.assign_decompose(region, cs, offset);
         region
-            .assign_advice(
-                || "check_sign",
-                dbg!(self.check_sign.word),
-                offset,
-                || Ok(cs),
-            )
+            .assign_advice(|| "check_sign", self.check_sign.word, offset, || Ok(cs))
             .unwrap();
     }
 }
