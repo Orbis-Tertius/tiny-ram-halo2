@@ -1,121 +1,37 @@
 {
-  inputs =
-    {
-      cargo2nix.url = "github:cargo2nix/cargo2nix/release-0.11.0";
-      nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-      nixpkgs-master.url = "github:NixOS/nixpkgs/master";
-      rust-overlay.url = "github:oxalica/rust-overlay";
-      flake-utils.url = "github:numtide/flake-utils";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  inputs.dream2nix = { url = "github:nix-community/dream2nix"; inputs.nixpkgs.follows = "nixpkgs"; };
+  inputs.fenix = { url = "github:nix-community/fenix"; inputs.nixpkgs.follows = "nixpkgs"; };
+
+  outputs = { self, nixpkgs, dream2nix, fenix }:
+    let
+      pkgs = nixpkgs.legacyPackages.x86_64-linux;
+      toolchain = fenix.packages.x86_64-linux.toolchainOf {
+        channel = "1.61";
+        sha256 = "sha256-oro0HsosbLRAuZx68xd0zfgPl6efNj2AQruKRq3KA2g=";
+      };
+    in
+    (dream2nix.lib.makeFlakeOutputs {
+      systems = [ "x86_64-linux" ];
+      config.projectRoot = ./.;
+      source = ./.;
+      packageOverrides.tiny-ram-halo2 = {
+        set-toolchain.overrideRustToolchain = old: { inherit (toolchain) cargo rustc; };
+        freetype-sys.nativeBuildInputs = [ pkgs.cmake ];
+        servo-fontconfig-sys = {
+          nativeBuildInputs = old: old ++ [ pkgs.pkg-config ];
+          buildInputs = [ pkgs.fontconfig ];
+        };
+      };
+    })
+    // {
+      checks.x86_64-linux.tiny-ram-halo2 = self.packages.x86_64-linux.tiny-ram-halo2;
+
+      devShells.x86_64-linux.default = pkgs.mkShell {
+        packages = [
+          (toolchain.withComponents [ "rustc" "rustfmt" "rust-src" "cargo" "clippy" "rust-docs" ])
+          fenix.packages.x86_64-linux.rust-analyzer
+        ];
+      };
     };
-
-  outputs = { self, cargo2nix, flake-utils, nixpkgs, nixpkgs-master, rust-overlay, ... }:
-    with builtins;
-    flake-utils.lib.eachSystem [ "x86_64-linux" ]
-      (system:
-        let
-          pkgs =
-            import nixpkgs
-              {
-                overlays =
-                  [
-                    cargo2nix.overlays.default
-                    rust-overlay.overlay
-                  ];
-
-                inherit system;
-              };
-            pkgs-master = import nixpkgs-master { inherit system; };
-
-          rustChannel = "1.61.0";
-          rustPkgs =
-            pkgs.rustBuilder.makePackageSet
-              {
-                inherit rustChannel;
-                packageFun = import ./Cargo.nix;
-                packageOverrides =
-                  let
-                    expat-sys = pkgs.rustBuilder.rustLib.makeOverride {
-                      name = "expat-sys";
-                      overrideAttrs = drv: {
-                        propagatedBuildInputs = drv.propagatedBuildInputs or [ ] ++ [ pkgs.expat ];
-                      };
-                    };
-                    freetype-sys = pkgs.rustBuilder.rustLib.makeOverride {
-                      name = "freetype-sys";
-                      overrideAttrs = drv: {
-                        propagatedBuildInputs = drv.propagatedBuildInputs or [ ] ++ [ pkgs.freetype ];
-                      };
-                    };
-                    font-kit = pkgs.rustBuilder.rustLib.makeOverride {
-                      name = "font-kit";
-                      overrideAttrs = drv: {
-                        propagatedNativeBuildInputs = drv.propagatedNativeBuildInputs or [ ] ++ [ pkgs.noto-fonts pkgs.fontconfig ];
-                      };
-                    };
-                  in
-                  pkgs: pkgs.rustBuilder.overrides.all ++ [ expat-sys freetype-sys font-kit ];
-              };
-        in
-        rec
-        {
-          packages =
-            {
-              tiny-ram-halo2 = (rustPkgs.workspace.tiny-ram-halo2 { }).bin;
-
-              # `runTests` runs all tests for a crate inside a Nix derivation.  This
-              # may be problematic as Nix may restrict filesystem, network access,
-              # socket creation, which the test binary may need.
-              # If you run to those problems, build test binaries (as shown above in
-              # workspace derivation arguments) and run them manually outside a Nix
-              # derivation.s
-              ci = pkgs.rustBuilder.runTests rustPkgs.workspace.tiny-ram-halo2 {
-                # Add `depsBuildBuild` test-only deps here, if any.
-
-                FONTCONFIG_FILE =
-                  with pkgs;
-                  makeFontsConf
-                    { inherit fontconfig;
-                      fontDirectories = [ "${noto-fonts}" ];
-                    };
-              };
-              shell = devShell;
-            };
-
-          defaultPackage = packages.tiny-ram-halo2;
-
-          devShell =
-            let
-              rust-toolchain =
-                (pkgs.formats.toml { }).generate "rust-toolchain.toml"
-                  {
-                    toolchain =
-                      {
-                        channel = rustChannel;
-
-                        components =
-                          [
-                            "rustc"
-                            "rustfmt"
-                            "rust-src"
-                            "cargo"
-                            "clippy"
-                            "rust-docs"
-                          ];
-                      };
-                  };
-            in
-            rustPkgs.workspaceShell {
-              # inherit rustChannel;
-              nativeBuildInputs = [ pkgs-master.rust-analyzer ] ++ (with pkgs; [ rustup cargo2nix.packages.${system}.default graphviz ]);
-              shellHook =
-                ''
-                  cp --no-preserve=mode ${rust-toolchain} rust-toolchain.toml
-
-                  export RUST_SRC_PATH=~/.rustup/toolchains/${rustChannel}-x86_64-unknown-linux-gnu/lib/rustlib/src/rust/library/
-                '';
-            };
-
-            herculesCI.ciSystems = [ "x86_64-linux" ];
-        }
-      );
 }
