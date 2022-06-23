@@ -11,7 +11,10 @@ use halo2_proofs::{
 
 use crate::{
     assign::TrackColumns,
-    circuits::{and::AndConfig, ssum::SSumConfig, sum::SumConfig},
+    circuits::{
+        and::AndConfig, prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig,
+        sum::SumConfig,
+    },
     leak_once,
     trace::{Instruction, Registers, Trace},
 };
@@ -66,6 +69,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     and: AndConfig<WORD_BITS>,
     sum: SumConfig<WORD_BITS>,
     ssum: SSumConfig<WORD_BITS>,
+    sprod: SProdConfig<WORD_BITS>,
     intermediate: Vec<Column<Advice>>,
 }
 
@@ -371,11 +375,37 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 flag,
             );
 
+            ProdConfig::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.prod,
+                a,
+                b,
+                c,
+                d,
+            );
+
             let signed_a = SignedConfig::configure(
                 &mut meta,
                 exe_len,
                 &[temp_var_selectors.out.ssum],
                 and.a,
+                even_bits,
+            );
+
+            let b_decomp = EvenBitsConfig::configure(
+                &mut meta,
+                b,
+                &[temp_var_selectors.out.sprod],
+                exe_len,
+                even_bits,
+            );
+
+            let signed_b = SignedConfig::configure(
+                &mut meta,
+                exe_len,
+                &[temp_var_selectors.out.sprod],
+                b_decomp,
                 even_bits,
             );
 
@@ -405,7 +435,19 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 flag,
             );
 
+            let sprod = SProdConfig::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.sprod,
+                signed_a,
+                signed_b,
+                signed_c,
+                d,
+            );
+
             ExeConfig {
+                table_max_len,
+                exe_len,
                 time,
                 pc,
                 opcode,
@@ -419,12 +461,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 c,
                 d,
                 temp_var_selectors,
-                table_max_len,
-                exe_len,
                 even_bits,
                 and,
                 sum,
                 ssum,
+                sprod,
                 intermediate: meta.1,
             }
         };
@@ -534,8 +575,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             temp_var_selectors,
             even_bits: _,
             and,
-            sum,
+            sum: _,
             ssum,
+            sprod,
             intermediate: _,
         } = self.config;
 
@@ -700,6 +742,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 Instruction::Cmpg(_) | Instruction::Cmpge(_) => {
                                     ssum.assign_sum(&mut region, ta, tc, offset);
                                 }
+                                Instruction::SMulh(_) => sprod.assign_sprod(
+                                    &mut region,
+                                    ta,
+                                    tb,
+                                    tc,
+                                    offset,
+                                ),
                                 // TODO
                                 _ => {}
                             }
@@ -923,6 +972,34 @@ mod tests {
         )
     }
 
+    fn mov_mull_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Mull(Mull {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_smullh_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::SMulh(SMulh {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
     // #[test]
     // fn circuit_layout_test() {
     //     const WORD_BITS: u32 = 8;
@@ -993,7 +1070,7 @@ mod tests {
       fn signed_word(word_bits: u32)
          (a in -2i32.pow(word_bits - 1)..2i32.pow(word_bits - 1) - 1)
       -> Word {
-          Word::_try_from_signed(a, word_bits).unwrap()
+          Word::try_from_signed(a, word_bits).unwrap()
       }
     }
 
@@ -1014,6 +1091,11 @@ mod tests {
         }
 
         #[test]
+        fn mov_mull_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_mull_answer(a, b))
+        }
+
+        #[test]
         fn mov_cmpa_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
             mock_prover_test::<8, 8>(mov_cmpa_answer(a, b))
         }
@@ -1031,6 +1113,11 @@ mod tests {
         #[test]
         fn mov_cmpge_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
             mock_prover_test::<8, 8>(mov_cmpge_answer(a, b))
+        }
+
+        #[test]
+        fn mov_smullh_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_smullh_answer(a, b))
         }
     }
 }
