@@ -718,7 +718,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     let r = steps[i].regs[rj].0 as u128
                         * a.get(&steps[i].regs).0 as u128;
                     // c is the upper word, and d is the lower word of multiplication (page 28)
-                    ((r & get_word_size_bit_mask_msb(WORD_BITS)) >> WORD_BITS) as u32
+                    trace::truncate::<WORD_BITS>(r >> WORD_BITS).0
                 }
                 Instruction::Cmpe(Cmpe { ri, a, .. }) => todo!(),
                 _ => panic!("Unhandled non-deterministic advice"),
@@ -735,8 +735,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                 Instruction::UMulh(UMulh { rj, a, .. }) => {
                     let r = steps[i].regs[rj].0 as u128
                         * a.get(&steps[i].regs).0 as u128;
-                    // d is the upper word, and c is the lower word of multiplication.
-                    trace::truncate::<WORD_BITS>(r << WORD_BITS).0
+                    trace::truncate::<WORD_BITS>(r).0
                 }
                 Instruction::SMulh(SMulh { rj, a, .. }) => {
                     let a = a.get(&steps[i].regs);
