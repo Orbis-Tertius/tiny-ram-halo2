@@ -986,6 +986,20 @@ mod tests {
         )
     }
 
+    fn mov_umulh_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Mull(Mull {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
     fn mov_smullh_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
         a: Word,
         b: Word,
@@ -1093,6 +1107,11 @@ mod tests {
         #[test]
         fn mov_mull_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
             mock_prover_test::<8, 8>(mov_mull_answer(a, b))
+        }
+
+        #[test]
+        fn mov_umulh_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_umulh_answer(a, b))
         }
 
         #[test]

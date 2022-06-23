@@ -838,7 +838,7 @@ impl Program {
                 Instruction::UMulh(UMulh { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store most significant bits of result in ri
                     let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
-                    regs[ri] = Word((r << (!WORD_BITS)) as u32);
+                    regs[ri] = truncate::<WORD_BITS>(r >> WORD_BITS);
                     flag = (r & get_word_size_bit_mask_msb(WORD_BITS)) != 0;
                 }
                 Instruction::SMulh(SMulh { ri, rj, a }) => {
