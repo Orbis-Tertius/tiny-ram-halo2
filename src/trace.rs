@@ -5,25 +5,28 @@ use std::{
     ops::{BitAnd, BitOr, BitXor, Index, IndexMut},
 };
 
+// TODO make generic over word size and rep, or make logic uniform on u64 or u128.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Word(pub u32);
 
 impl Word {
-    pub fn try_from_signed<const WORD_BITS: u32>(s: i32) -> Option<Word> {
-        Self::_try_from_signed(s, WORD_BITS)
-    }
-
-    /// Only use this in proptests.
-    /// Hopefully proptest will add support for const.
-    pub fn _try_from_signed(s: i32, word_bits: u32) -> Option<Word> {
+    pub const fn try_from_signed(s: i32, word_bits: u32) -> Option<Word> {
         let min = -2i32.pow(word_bits - 1);
         if s > -min - 1 || s < min {
             None
         } else if s >= 0 {
             Some(Word(s as u32))
         } else {
-            let u = 2i32.pow(word_bits);
-            Some(Word((s + u) as u32))
+            let u = 2i64.pow(word_bits);
+            Some(Word((s as i64 + u) as u32))
+        }
+    }
+
+    pub fn into_signed(self, word_bits: u32) -> i32 {
+        if (1 << (word_bits - 1)) & self.0 == 0 {
+            self.0 as _
+        } else {
+            (self.0 as i64 - 2i64.pow(word_bits)) as _
         }
     }
 }
@@ -31,17 +34,24 @@ impl Word {
 proptest! {
     #[test]
     fn from_signed_test(s in -2i32.pow(8 - 1)..2i32.pow(8 - 1) - 1) {
-        assert_eq!(Word::try_from_signed::<8>(s.into()), Some(Word(s as i8 as u8 as u32)));
+        assert_eq!(Word::try_from_signed(s.into(), 8), Some(Word(s as i8 as u8 as u32)));
     }
 
     #[test]
     fn from_signed_test_too_high(s in 2i32.pow(8 - 1)..i32::MAX) {
-        assert_eq!(Word::try_from_signed::<8>(s.into()), None);
+        assert_eq!(Word::try_from_signed(s.into(), 8), None);
     }
 
     #[test]
     fn from_signed_test_too_low(s in i32::MIN..(-2i32.pow(8 - 1)) - 1) {
-        assert_eq!(Word::try_from_signed::<8>(s.into()), None);
+        assert_eq!(Word::try_from_signed(s.into(), 8), None);
+    }
+
+    #[test]
+    fn to_signed_test(s in -2i32.pow(8 - 1)..2i32.pow(8 - 1) - 1) {
+        let w = Word::try_from_signed(s.into(), 8);
+        assert_eq!(w, Some(Word(s as i8 as u8 as u32)));
+        assert_eq!(w.unwrap().into_signed(8), s);
     }
 }
 
@@ -615,6 +625,26 @@ pub struct SMulh {
     pub a: ImmediateOrRegName,
 }
 
+impl SMulh {
+    /// Returns the `(upper bits, lower bits, flag)` of signed multiplication.
+    /// The flag is set if `a * b` is out of range of the word size.
+    pub fn eval<const WORD_BITS: u32>(a: Word, b: Word) -> (Word, Word, bool) {
+        let a = a.into_signed(WORD_BITS) as i128;
+        let b = b.into_signed(WORD_BITS) as i128;
+
+        let f = a * b;
+
+        let lower = truncate::<WORD_BITS>(f as u128);
+        let upper = truncate::<WORD_BITS>((f >> WORD_BITS) as u128);
+
+        let m = 2i128.pow(WORD_BITS - 1);
+        let flag = if f >= m || f < -m { true } else { false };
+
+        assert_eq!(f.is_negative(), upper.into_signed(WORD_BITS).is_negative());
+        (upper, lower, flag)
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct UDiv {
     pub ri: RegName,
@@ -729,10 +759,12 @@ pub fn truncate<const WORD_BITS: u32>(word: u128) -> Word {
     Word((word & ((2u128.pow(WORD_BITS)) - 1)) as u32)
 }
 
+/// A bit mask for getting the upper word.
+///
 /// We are matching the Haskell TinyRAM emulator.
 /// github.com/Orbis-Tertius/tinyram/blob/main/src/TinyRAM/Params.hs
-pub const fn get_word_size_bit_mask_msb<const WORD_BITS: u32>() -> u128 {
-    let m = 2u128.pow(WORD_BITS);
+pub const fn get_word_size_bit_mask_msb(word_bits: u32) -> u128 {
+    let m = 2u128.pow(word_bits);
     m * (m - 1)
 }
 
@@ -789,38 +821,33 @@ impl Program {
                     let r = regs[rj].0 as u128 + a.get(&regs).0 as u128;
 
                     regs[ri] = truncate::<WORD_BITS>(r);
-                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                    flag = (r & get_word_size_bit_mask_msb(WORD_BITS)) != 0;
                 }
                 Instruction::Sub(Sub { ri, rj, a }) => {
                     let r = regs[rj].0 as u128 + 2u128.pow(WORD_BITS)
                         - a.get(&regs).0 as u128;
                     regs[ri] = truncate::<WORD_BITS>(r);
-                    flag = (r & (get_word_size_bit_mask_msb::<WORD_BITS>())) == 0;
+                    flag = (r & (get_word_size_bit_mask_msb(WORD_BITS))) == 0;
                 }
                 Instruction::Mull(Mull { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store least significant bits of result in ri
                     let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
                     regs[ri] = truncate::<WORD_BITS>(r);
-                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                    flag = (r & get_word_size_bit_mask_msb(WORD_BITS)) != 0;
                 }
                 Instruction::UMulh(UMulh { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store most significant bits of result in ri
                     let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
                     regs[ri] = Word((r << (!WORD_BITS)) as u32);
-                    flag = (r & get_word_size_bit_mask_msb::<WORD_BITS>()) != 0;
+                    flag = (r & get_word_size_bit_mask_msb(WORD_BITS)) != 0;
                 }
                 Instruction::SMulh(SMulh { ri, rj, a }) => {
                     let a = a.get(&regs);
                     let rj = regs[rj];
-                    let a_abs =
-                        signed_arithmetic::get_unsigned_component::<WORD_BITS>(a);
-                    let rj_abs =
-                        signed_arithmetic::get_unsigned_component::<WORD_BITS>(rj);
-                    let ri_abs = a_abs * rj_abs;
 
-                    regs[ri] =
-                        signed_arithmetic::signed_mul_high::<WORD_BITS>(a, rj);
-                    flag = ri_abs & get_word_size_bit_mask_msb::<WORD_BITS>() != 0;
+                    let (upper, _lower, f) = SMulh::eval::<WORD_BITS>(a, rj);
+                    regs[ri] = upper;
+                    flag = f;
                 }
                 Instruction::UDiv(UDiv { ri, rj, a }) => {
                     let a = a.get(&regs).0;
@@ -941,21 +968,6 @@ mod signed_arithmetic {
 
     pub fn get_unsigned_component<const WORD_BITS: u32>(w: Word) -> u128 {
         decode_signed::<WORD_BITS>(w).abs() as _
-    }
-
-    pub fn signed_mul_high<const WORD_BITS: u32>(x: Word, y: Word) -> Word {
-        let x_sign = get_sign::<WORD_BITS>(x);
-        let y_sign = get_sign::<WORD_BITS>(y);
-        let z_sign = x_sign * y_sign;
-        let x_abs = get_unsigned_component::<WORD_BITS>(x);
-        let y_abs = get_unsigned_component::<WORD_BITS>(y);
-        let z_abs = x_abs * y_abs;
-        let sign_bit = if z_sign == -1 {
-            2u128.pow(WORD_BITS - 1)
-        } else {
-            0
-        };
-        Word((sign_bit | z_abs << !WORD_BITS) as u32)
     }
 }
 
