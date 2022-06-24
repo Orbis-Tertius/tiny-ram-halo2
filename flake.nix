@@ -31,6 +31,9 @@
         packages = [
           (toolchain.withComponents [ "rustc" "rustfmt" "rust-src" "cargo" "clippy" "rust-docs" ])
           fenix.packages.x86_64-linux.rust-analyzer
+          pkgs.cmake
+          pkgs.pkg-config
+          pkgs.fontconfig
         ];
       };
     };
