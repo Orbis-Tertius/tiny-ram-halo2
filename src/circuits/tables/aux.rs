@@ -636,7 +636,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     if a == 0 {
                         0
                     } else {
-                        steps[i].regs[rj].0 / a
+                        steps[i].regs[rj].0 % a
                     }
                 }
                 _ => panic!("Unhandled non-deterministic advice"),
