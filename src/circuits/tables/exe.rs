@@ -12,8 +12,8 @@ use halo2_proofs::{
 use crate::{
     assign::TrackColumns,
     circuits::{
-        and::AndConfig, prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig,
-        sum::SumConfig,
+        and::AndConfig, modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig,
+        ssum::SSumConfig, sum::SumConfig,
     },
     leak_once,
     trace::{Instruction, Registers, Trace},
@@ -67,7 +67,6 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
     even_bits: EvenBitsTable<WORD_BITS>,
     and: AndConfig<WORD_BITS>,
-    sum: SumConfig<WORD_BITS>,
     ssum: SSumConfig<WORD_BITS>,
     sprod: SProdConfig<WORD_BITS>,
     intermediate: Vec<Column<Advice>>,
@@ -345,6 +344,28 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let mut meta = TrackColumns::new(meta);
 
+            let sum = SumConfig::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.sum,
+                a,
+                b,
+                c,
+                d,
+                flag,
+            );
+
+            let modulo = ModConfig::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.mod_,
+                a,
+                b,
+                c,
+                d,
+                flag,
+            );
+
             let a_decomp = EvenBitsConfig::configure(
                 &mut meta,
                 a,
@@ -362,17 +383,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 a_decomp,
                 b,
                 c,
-            );
-
-            let sum = SumConfig::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.sum,
-                a,
-                b,
-                c,
-                d,
-                flag,
             );
 
             ProdConfig::<WORD_BITS>::configure(
@@ -463,7 +473,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 temp_var_selectors,
                 even_bits,
                 and,
-                sum,
                 ssum,
                 sprod,
                 intermediate: meta.1,
@@ -575,7 +584,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             temp_var_selectors,
             even_bits: _,
             and,
-            sum: _,
             ssum,
             sprod,
             intermediate: _,
@@ -749,6 +757,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     tc,
                                     offset,
                                 ),
+                                // MOD only uses temporary variables
+                                // TODO FLAG_3
+                                Instruction::UMod(_) | Instruction::UDiv(_) => {}
+
                                 // TODO
                                 _ => {}
                             }
@@ -1014,6 +1026,34 @@ mod tests {
         )
     }
 
+    fn mov_umod_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::UMod(UMod {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_udiv_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::UDiv(UDiv {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
     // #[test]
     // fn circuit_layout_test() {
     //     const WORD_BITS: u32 = 8;
@@ -1112,6 +1152,16 @@ mod tests {
         #[test]
         fn mov_umulh_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
             mock_prover_test::<8, 8>(mov_umulh_answer(a, b))
+        }
+
+        #[test]
+        fn mov_umod_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_umod_answer(a, b))
+        }
+
+        #[test]
+        fn mov_udiv_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_udiv_answer(a, b))
         }
 
         #[test]
