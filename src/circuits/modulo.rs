@@ -23,27 +23,6 @@ pub struct ModConfig<const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> ModConfig<WORD_BITS> {
-    pub fn new(
-        s_table: Selector,
-        s_mod: Column<Advice>,
-
-        a: Column<Advice>,
-        b: Column<Advice>,
-        c: Column<Advice>,
-        d: Column<Advice>,
-        flag: Column<Advice>,
-    ) -> Self {
-        Self {
-            s_table,
-            s_mod,
-            a,
-            b,
-            c,
-            d,
-            flag,
-        }
-    }
-
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,
@@ -55,16 +34,6 @@ impl<const WORD_BITS: u32> ModConfig<WORD_BITS> {
         d: Column<Advice>,
         flag: Column<Advice>,
     ) -> Self {
-        let conf @ Self {
-            s_table,
-            s_mod,
-            a,
-            b,
-            c,
-            d,
-            flag,
-        } = Self::new(s_table, s_mod, a, b, c, d, flag);
-
         meta.cs().create_gate("mod", |meta| {
             let s_table = meta.query_selector(s_table);
             let s_mod = meta.query_advice(s_mod, Rotation::cur());
@@ -81,6 +50,14 @@ impl<const WORD_BITS: u32> ModConfig<WORD_BITS> {
             )
         });
 
-        conf
+        Self {
+            s_table,
+            s_mod,
+            a,
+            b,
+            c,
+            d,
+            flag,
+        }
     }
 }
