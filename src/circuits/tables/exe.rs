@@ -12,8 +12,8 @@ use halo2_proofs::{
 use crate::{
     assign::TrackColumns,
     circuits::{
-        and::AndConfig, modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig,
-        ssum::SSumConfig, sum::SumConfig,
+        and::AndConfig, flag1::Flag1Config, modulo::ModConfig, prod::ProdConfig,
+        sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
     leak_once,
     trace::{Instruction, Registers, Trace},
@@ -344,7 +344,15 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let mut meta = TrackColumns::new(meta);
 
-            let sum = SumConfig::<WORD_BITS>::configure(
+            Flag1Config::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.and,
+                c,
+                flag,
+            );
+
+            SumConfig::<WORD_BITS>::configure(
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.sum,
@@ -355,7 +363,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 flag,
             );
 
-            let modulo = ModConfig::<WORD_BITS>::configure(
+            ModConfig::<WORD_BITS>::configure(
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.mod_,
