@@ -12,8 +12,9 @@ use halo2_proofs::{
 use crate::{
     assign::{NewColumn, TrackColumns},
     circuits::{
-        and::AndConfig, flag1::Flag1Config, flag2::Flag2Config, modulo::ModConfig,
-        prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
+        and::AndConfig, flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
+        modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig,
+        sum::SumConfig,
     },
     leak_once,
     trace::{Instruction, Registers, Trace},
@@ -73,7 +74,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
     // flag1: Flag1Config,
     flag2: Flag2Config<WORD_BITS>,
-    // flag3: Flag3Config,
+    flag3: Flag3Config<WORD_BITS>,
     // flag4: Flag4Config,
 }
 
@@ -367,6 +368,25 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 a_flag,
             );
 
+            let flag3_r = meta.new_column();
+            let r_decompose = EvenBitsConfig::configure(
+                &mut meta,
+                flag3_r,
+                &[temp_var_selectors.out.flag3],
+                exe_len,
+                even_bits,
+            );
+            let flag3 = Flag3Config::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.flag3,
+                a,
+                b,
+                c,
+                flag,
+                r_decompose,
+            );
+
             SumConfig::<WORD_BITS>::configure(
                 &mut meta,
                 exe_len,
@@ -500,6 +520,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 sprod,
                 intermediate: meta.1,
                 flag2,
+                flag3,
             }
         };
 
@@ -612,6 +633,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             sprod,
             intermediate: _,
             flag2,
+            flag3,
         } = self.config;
 
         layouter
@@ -763,7 +785,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 )
                                 .unwrap();
 
-                            // TODO only assign for relevant instructions.
+                            // TODO only assign flags for relevant instructions.
                             flag2.assign_flag2(
                                 &mut region,
                                 tc,
@@ -796,9 +818,17 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     tc,
                                     offset,
                                 ),
-                                // MOD only uses temporary variables
-                                // TODO FLAG_3
-                                Instruction::UMod(_) | Instruction::UDiv(_) => {}
+                                Instruction::UMod(_) | Instruction::UDiv(_) => {
+                                    eprintln!(
+                                        "a: {}, b: {}, c: {}, d: {}, flag_n: {}",
+                                        ta.get_lower_128(),
+                                        tb.get_lower_128(),
+                                        tc.get_lower_128(),
+                                        td.get_lower_128(),
+                                        trace.exe[offset + 1].flag
+                                    );
+                                    flag3.assign_flag3(&mut region, ta, tc, offset);
+                                }
 
                                 // TODO
                                 _ => {}

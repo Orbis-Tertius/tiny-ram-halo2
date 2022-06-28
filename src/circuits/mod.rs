@@ -1,6 +1,7 @@
 pub mod and;
 pub mod flag1;
 pub mod flag2;
+pub mod flag3;
 pub mod modulo;
 pub mod prod;
 pub mod sprod;
