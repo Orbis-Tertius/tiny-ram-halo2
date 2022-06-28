@@ -6,14 +6,18 @@
   outputs = { self, nixpkgs, dream2nix, fenix }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      toolchain = fenix.packages.x86_64-linux.fromToolchainFile { file = ./rust-toolchain; };
+      channelVersion = "1.61.0";
+      toolchain = fenix.packages.x86_64-linux.toolchainOf {
+        channel = channelVersion;
+        sha256 = "sha256-oro0HsosbLRAuZx68xd0zfgPl6efNj2AQruKRq3KA2g=";
+      };
     in
     (dream2nix.lib.makeFlakeOutputs {
       systems = [ "x86_64-linux" ];
       config.projectRoot = ./.;
       source = ./.;
       packageOverrides.tiny-ram-halo2 = {
-        set-toolchain.overrideRustToolchain = old: { inherit (toolchain); };
+        set-toolchain.overrideRustToolchain = old: { inherit (toolchain) cargo rustc; };
         freetype-sys.nativeBuildInputs = [ pkgs.cmake ];
         servo-fontconfig-sys = {
           nativeBuildInputs = old: old ++ [ pkgs.pkg-config ];
@@ -24,14 +28,24 @@
     // {
       checks.x86_64-linux.tiny-ram-halo2 = self.packages.x86_64-linux.tiny-ram-halo2;
 
-      devShells.x86_64-linux.default = pkgs.mkShell {
-        packages = [
-          pkgs.rustup
-          fenix.packages.x86_64-linux.rust-analyzer
-          pkgs.cmake
-          pkgs.pkg-config
-          pkgs.fontconfig
-        ];
-      };
+      devShells.x86_64-linux.default =
+        let
+          rust-toolchain = (pkgs.formats.toml { }).generate "rust-toolchain.toml" {
+            toolchain = {
+              channel = channelVersion;
+              components = [ "rustc" "rustfmt" "rust-src" "cargo" "clippy" "rust-docs" ];
+            };
+          };
+        in
+        pkgs.mkShell {
+          shellHook = "cp --no-preserve=mode ${rust-toolchain} rust-toolchain.toml";
+          packages = [
+            pkgs.rustup
+            fenix.packages.x86_64-linux.rust-analyzer
+            pkgs.cmake
+            pkgs.pkg-config
+            pkgs.fontconfig
+          ];
+        };
     };
 }
