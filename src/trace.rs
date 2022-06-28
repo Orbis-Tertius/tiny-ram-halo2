@@ -832,22 +832,23 @@ impl Program {
                 Instruction::Mull(Mull { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store least significant bits of result in ri
                     let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
-                    regs[ri] = truncate::<WORD_BITS>(r);
-                    flag = (r & get_word_size_bit_mask_msb(WORD_BITS)) != 0;
+                    regs[ri] = Word((r % 2u128.pow(WORD_BITS)) as u32);
+
+                    flag = r < 2u128.pow(WORD_BITS);
                 }
                 Instruction::UMulh(UMulh { ri, rj, a }) => {
                     // compute [rj]u × [A]u and store most significant bits of result in ri
                     let r = regs[rj].0 as u128 * a.get(&regs).0 as u128;
                     regs[ri] = truncate::<WORD_BITS>(r >> WORD_BITS);
-                    flag = (r & get_word_size_bit_mask_msb(WORD_BITS)) != 0;
+                    flag = regs[ri].0 == 0;
                 }
                 Instruction::SMulh(SMulh { ri, rj, a }) => {
                     let a = a.get(&regs);
                     let rj = regs[rj];
 
-                    let (upper, _lower, f) = SMulh::eval::<WORD_BITS>(a, rj);
+                    let (upper, _lower, _f) = SMulh::eval::<WORD_BITS>(a, rj);
                     regs[ri] = upper;
-                    flag = f;
+                    flag = upper.0 == 0;
                 }
                 Instruction::UDiv(UDiv { ri, rj, a }) => {
                     let a = a.get(&regs).0;

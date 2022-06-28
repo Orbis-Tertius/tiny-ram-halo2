@@ -1,3 +1,5 @@
+// TODO add tests using dead code
+#![allow(dead_code)]
 use crate::assign::ConstraintSys;
 use halo2_proofs::plonk::Constraints;
 use halo2_proofs::poly::Rotation;
