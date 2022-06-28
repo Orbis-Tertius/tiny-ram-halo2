@@ -120,6 +120,7 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
             .assign_advice(|| "msb", self.msb, offset, || Ok(F::from_u128(msb)))
             .unwrap();
 
+        // TODO revist this, compare this approach to using `-F::from(n)`;
         // See page 28
         let word_sigma = -(msb as i128) * 2i128.pow(WORD_BITS) + word as i128;
         let word_sigma = if word_sigma >= 0 {

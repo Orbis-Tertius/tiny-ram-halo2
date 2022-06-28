@@ -10,10 +10,10 @@ use halo2_proofs::{
 };
 
 use crate::{
-    assign::TrackColumns,
+    assign::{NewColumn, TrackColumns},
     circuits::{
-        and::AndConfig, flag1::Flag1Config, modulo::ModConfig, prod::ProdConfig,
-        sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
+        and::AndConfig, flag1::Flag1Config, flag2::Flag2Config, modulo::ModConfig,
+        prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
     leak_once,
     trace::{Instruction, Registers, Trace},
@@ -70,6 +70,11 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     ssum: SSumConfig<WORD_BITS>,
     sprod: SProdConfig<WORD_BITS>,
     intermediate: Vec<Column<Advice>>,
+
+    // flag1: Flag1Config,
+    flag2: Flag2Config<WORD_BITS>,
+    // flag3: Flag3Config,
+    // flag4: Flag4Config,
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
@@ -347,9 +352,19 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             Flag1Config::<WORD_BITS>::configure(
                 &mut meta,
                 exe_len,
-                temp_var_selectors.out.and,
+                temp_var_selectors.out.flag1,
                 c,
                 flag,
+            );
+
+            let a_flag = meta.new_column();
+            let flag2 = Flag2Config::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.flag2,
+                c,
+                flag,
+                a_flag,
             );
 
             SumConfig::<WORD_BITS>::configure(
@@ -484,6 +499,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 ssum,
                 sprod,
                 intermediate: meta.1,
+                flag2,
             }
         };
 
@@ -514,7 +530,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 reg,
                 reg_next,
                 a,
-                non_det,
+                non_det: _,
                 max_word,
             } = config.temp_var_selectors.b;
 
@@ -534,7 +550,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 reg,
                 reg_next,
                 a,
-                non_det,
+                non_det: _,
                 zero,
             } = config.temp_var_selectors.c;
 
@@ -552,7 +568,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 reg,
                 reg_next,
                 a,
-                non_det,
+                non_det: _,
                 zero,
                 one,
             } = config.temp_var_selectors.d;
@@ -595,6 +611,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             ssum,
             sprod,
             intermediate: _,
+            flag2,
         } = self.config;
 
         layouter
@@ -745,6 +762,20 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || Ok(td),
                                 )
                                 .unwrap();
+
+                            // TODO only assign for relevant instructions.
+                            flag2.assign_flag2(
+                                &mut region,
+                                tc,
+                                F::from(
+                                    trace
+                                        .exe
+                                        .get(offset + 1)
+                                        .map(|s| s.flag)
+                                        .unwrap_or(false),
+                                ),
+                                offset,
+                            );
 
                             match step.instruction {
                                 Instruction::And(_) => {
