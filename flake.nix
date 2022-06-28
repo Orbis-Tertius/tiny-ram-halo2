@@ -6,17 +6,14 @@
   outputs = { self, nixpkgs, dream2nix, fenix }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      toolchain = fenix.packages.x86_64-linux.toolchainOf {
-        channel = "1.61";
-        sha256 = "sha256-oro0HsosbLRAuZx68xd0zfgPl6efNj2AQruKRq3KA2g=";
-      };
+      toolchain = fenix.packages.x86_64-linux.fromToolchainFile { file = ./rust-toolchain; };
     in
     (dream2nix.lib.makeFlakeOutputs {
       systems = [ "x86_64-linux" ];
       config.projectRoot = ./.;
       source = ./.;
       packageOverrides.tiny-ram-halo2 = {
-        set-toolchain.overrideRustToolchain = old: { inherit (toolchain) cargo rustc; };
+        set-toolchain.overrideRustToolchain = old: { inherit (toolchain); };
         freetype-sys.nativeBuildInputs = [ pkgs.cmake ];
         servo-fontconfig-sys = {
           nativeBuildInputs = old: old ++ [ pkgs.pkg-config ];
@@ -29,7 +26,7 @@
 
       devShells.x86_64-linux.default = pkgs.mkShell {
         packages = [
-          (toolchain.withComponents [ "rustc" "rustfmt" "rust-src" "cargo" "clippy" "rust-docs" ])
+          pkgs.rustup
           fenix.packages.x86_64-linux.rust-analyzer
           pkgs.cmake
           pkgs.pkg-config
