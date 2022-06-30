@@ -1,4 +1,5 @@
 pub mod and;
+pub mod changed;
 pub mod flag1;
 pub mod flag2;
 pub mod flag3;

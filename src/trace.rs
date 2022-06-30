@@ -521,6 +521,16 @@ impl ImmediateOrRegName {
 #[derive(Debug, Clone, Copy)]
 pub struct Registers<const REG_COUNT: usize, T>(pub [T; REG_COUNT]);
 
+impl<const REG_COUNT: usize, T> Registers<REG_COUNT, T> {
+    pub fn init_with(mut f: impl FnMut() -> T) -> Self {
+        // We cannot write `[meta.advice_column(); REG_COUNT]`,
+        // That would produce an array of the same advice copied REG_COUNT times.
+        //
+        // See Rust's array initialization semantics.
+        Registers([0; REG_COUNT].map(|_| f()))
+    }
+}
+
 impl<const REG_COUNT: usize, T> From<[T; REG_COUNT]> for Registers<REG_COUNT, T> {
     fn from(arr: [T; REG_COUNT]) -> Self {
         Registers(arr)
