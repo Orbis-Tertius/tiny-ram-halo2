@@ -95,7 +95,7 @@ impl<const WORD_BITS: u32> Flag3Config<WORD_BITS> {
         let r = if c == F::zero() {
             F::zero()
         } else {
-            dbg!(c - a - F::one())
+            c - a - F::one()
         };
         region
             .assign_advice(|| "r", self.r.word, offset, || Ok(r))

@@ -1,9 +1,11 @@
 use core::panic;
+use std::fmt::Debug;
 
 use halo2_proofs::{arithmetic::FieldExt, plonk};
 
 use crate::{
     assign::{NewColumn, PushRow},
+    circuits::changed::UnChangedSelectors,
     trace::{self, *},
 };
 
@@ -26,49 +28,6 @@ impl<const REG_COUNT: usize, C: Copy> ExeRow<REG_COUNT, C> {
             immediate: NewColumn::new_column(meta),
             regs: [0; REG_COUNT].map(|_| NewColumn::new_column(meta)),
             v_addr: NewColumn::new_column(meta),
-        }
-    }
-}
-
-/// This corresponds to sch in the paper.
-/// A selector value of 1 denotes an unchanged cell.
-#[derive(Debug, Clone, Copy)]
-pub struct UnChangedSelectors<const REG_COUNT: usize, T> {
-    pub regs: Registers<REG_COUNT, T>,
-    pub pc: T,
-    pub flag: T,
-}
-
-impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
-    pub fn new(mut new_fn: impl FnMut() -> T) -> Self {
-        UnChangedSelectors {
-            regs: Registers([0usize; REG_COUNT].map(|_| new_fn())),
-            pc: new_fn(),
-            flag: new_fn(),
-        }
-    }
-
-    fn push_cells<F: FieldExt, R: PushRow<F, T>>(
-        self,
-        region: &mut R,
-        vals: UnChangedSelectors<REG_COUNT, bool>,
-    ) -> Result<(), plonk::Error> {
-        let Self { regs, pc, flag } = self;
-
-        for (rc, rv) in regs.0.into_iter().zip(vals.regs.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
-        }
-        region.push_cell(pc, vals.pc.into())?;
-        region.push_cell(flag, vals.flag.into())?;
-
-        Ok(())
-    }
-
-    fn convert<B: From<T>>(self) -> UnChangedSelectors<REG_COUNT, B> {
-        UnChangedSelectors {
-            regs: self.regs.convert(),
-            pc: self.pc.into(),
-            flag: self.flag.into(),
         }
     }
 }
@@ -205,7 +164,9 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
         self,
         region: &mut R,
         vals: TempVarSelectorsRow<REG_COUNT>,
-    ) {
+    ) where
+        C: Debug,
+    {
         let Self {
             a,
             b,
@@ -575,7 +536,10 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
                 out: Out { xor: true, ..out },
-                ch,
+                ch: UnChangedSelectors {
+                    regs: ch.regs.set(ri, false),
+                    ..ch
+                },
             },
             trace::Instruction::StoreW(StoreW { ri, a }) => Self {
                 a: SelectionA::VAddr,
@@ -583,10 +547,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
                 out: Out { xor: true, ..out },
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    ..ch
-                },
+                ch,
             },
 
             // TODO it is unclear what should be in Answer's selection vectors.

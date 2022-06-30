@@ -17,7 +17,7 @@ use crate::{
         sum::SumConfig,
     },
     leak_once,
-    trace::{Instruction, Registers, Trace},
+    trace::{Instruction, RegName, Registers, Trace},
 };
 
 use super::{
@@ -50,7 +50,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// `Exe_inst` in the paper.
     opcode: Column<Advice>,
     immediate: Column<Advice>,
-    reg: [Column<Advice>; REG_COUNT],
+    reg: Registers<REG_COUNT, Column<Advice>>,
     flag: Column<Advice>,
     address: Column<Advice>,
     value: Column<Advice>,
@@ -156,7 +156,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
                 |meta| {
                     let s_reg = meta.query_advice(s_reg, Rotation::cur());
-                    let reg = meta.query_advice(self.reg[i], Rotation::cur());
+                    let reg = meta
+                        .query_advice(self.reg[RegName(i as _)], Rotation::cur());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
                     let table_max_len = meta.query_selector(self.table_max_len);
@@ -179,7 +180,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
                 |meta| {
                     let s_reg = meta.query_advice(s_reg_next, Rotation::cur());
-                    let reg_next = meta.query_advice(self.reg[i], Rotation::next());
+                    let reg_next = meta
+                        .query_advice(self.reg[RegName(i as _)], Rotation::next());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
                     let time_next = meta.query_advice(self.time, Rotation::next());
@@ -323,14 +325,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let immediate = meta.advice_column();
 
-            // We cannot write `[meta.advice_column(); REG_COUNT]`,
-            // That would produce an array of the same advice copied REG_COUNT times.
-            //
-            // See Rust's array initialization semantics.
-            let reg = [0; REG_COUNT].map(|_| meta.advice_column());
-            for column in &reg {
-                meta.enable_equality(*column);
-            }
+            let reg = Registers::init_with(|| meta.advice_column());
 
             // Temporary vars
             let a = meta.advice_column();
@@ -524,6 +519,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             }
         };
 
+        config.temp_var_selectors.ch.unchanged_gate(
+            meta,
+            config.exe_len,
+            config.reg,
+            config.pc,
+            config.flag,
+        );
+
         {
             let SelectiorsA {
                 pc_next,
@@ -709,7 +712,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .unwrap();
 
                         // assign registers
-                        for ((rn, reg), v) in reg.iter().enumerate().zip(step.regs.0)
+                        for ((rn, reg), v) in
+                            reg.0.iter().enumerate().zip(step.regs.0)
                         {
                             region
                                 .assign_advice(
@@ -819,14 +823,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     offset,
                                 ),
                                 Instruction::UMod(_) | Instruction::UDiv(_) => {
-                                    eprintln!(
-                                        "a: {}, b: {}, c: {}, d: {}, flag_n: {}",
-                                        ta.get_lower_128(),
-                                        tb.get_lower_128(),
-                                        tc.get_lower_128(),
-                                        td.get_lower_128(),
-                                        trace.exe[offset + 1].flag
-                                    );
                                     flag3.assign_flag3(&mut region, ta, tc, offset);
                                 }
 
