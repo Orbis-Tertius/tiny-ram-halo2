@@ -12,6 +12,8 @@ use halo2_proofs::{
 pub struct Flag1Config<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
+    /// An advice columns that acts as a selector for flag1's gate.
+    /// [`Out.flag1`](crate::circuits::tables::aux::Out)
     s_flag1: Column<Advice>,
 
     c: Column<Advice>,

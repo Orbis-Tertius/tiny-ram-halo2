@@ -530,7 +530,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
 
-            trace::Instruction::LoadW(LoadW { ri, a }) => Self {
+            trace::Instruction::LoadW(LoadW { ri, .. }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::Reg(ri),
                 c: SelectionC::Zero,
@@ -541,7 +541,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                     ..ch
                 },
             },
-            trace::Instruction::StoreW(StoreW { ri, a }) => Self {
+            trace::Instruction::StoreW(StoreW { ri, .. }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
@@ -550,7 +550,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 ch,
             },
 
-            // TODO it is unclear what should be in Answer's selection vectors.
+            // Answer's selection vectors, except `a`, are undefined.
             // Reference page 35
             trace::Instruction::Answer(Answer { a }) => Self {
                 a: SelectionA::A(a),

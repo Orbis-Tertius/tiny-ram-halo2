@@ -16,9 +16,9 @@ use std::marker::PhantomData;
 pub struct SumConfig<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
-    /// An advice columns that acts as a selector for sum's gates.
-    /// `Out.sum`
-    s_sum: Column<Advice>,
+    /// An advice columns that acts as a selector for sum's gate.
+    /// [`Out.sum`](crate::circuits::tables::aux::Out)
+    pub s_sum: Column<Advice>,
 
     a: Column<Advice>,
     b: Column<Advice>,
@@ -148,14 +148,9 @@ impl<const WORD_BITS: u32> Circuit<Fp> for SumCircuit<Fp, WORD_BITS> {
         let s_sum = meta.advice_column();
 
         let a = meta.advice_column();
-        meta.enable_equality(a);
-
         let b = meta.advice_column();
-        meta.enable_equality(b);
-
         let c = meta.advice_column();
         meta.enable_equality(c);
-
         let d = meta.advice_column();
 
         // Overflow flag

@@ -45,33 +45,47 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     ///
     /// It's set on rows 0..exe_len() - 1
     exe_len: Selector,
+
+    /// Instruction count
     time: Column<Advice>,
+    /// Program count
     pc: Column<Advice>,
     /// `Exe_inst` in the paper.
     opcode: Column<Advice>,
     immediate: Column<Advice>,
+
+    // State
     reg: Registers<REG_COUNT, Column<Advice>>,
     flag: Column<Advice>,
-    address: Column<Advice>,
-    value: Column<Advice>,
+
+    // Temporary variables
     a: Column<Advice>,
     b: Column<Advice>,
     c: Column<Advice>,
     d: Column<Advice>,
+
+    temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+
+    // Auxiliary memory columns
+    address: Column<Advice>,
+    value: Column<Advice>,
 
     // t_link: Column<Advice>,
     // v_link: Column<Advice>,
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-    temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
 
+    // Auxiliary entries used by mutually exclusive constraints.
     even_bits: EvenBitsTable<WORD_BITS>,
     and: AndConfig<WORD_BITS>,
     ssum: SSumConfig<WORD_BITS>,
     sprod: SProdConfig<WORD_BITS>,
+
+    /// An implemention detail, used to default fill columns.
     intermediate: Vec<Column<Advice>>,
 
+    // FLAG1 needs no extra advice.
     // flag1: Flag1Config,
     flag2: Flag2Config<WORD_BITS>,
     flag3: Flag3Config<WORD_BITS>,

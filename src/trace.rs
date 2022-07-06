@@ -963,22 +963,10 @@ impl Program {
 mod signed_arithmetic {
     use super::Word;
 
-    pub fn get_sign<const WORD_BITS: u32>(w: Word) -> isize {
-        if (WORD_BITS - 1) & w.0 == 0 {
-            1
-        } else {
-            -1
-        }
-    }
-
     pub fn decode_signed<const WORD_BITS: u32>(w: Word) -> i64 {
         let m = 2i64.pow(WORD_BITS - 1);
         let w = w.0 as i64;
         (w & (m - 1)) - (w & m)
-    }
-
-    pub fn get_unsigned_component<const WORD_BITS: u32>(w: Word) -> u128 {
-        decode_signed::<WORD_BITS>(w).abs() as _
     }
 }
 

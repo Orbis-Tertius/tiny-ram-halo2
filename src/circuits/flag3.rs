@@ -15,6 +15,8 @@ use super::tables::even_bits::EvenBitsConfig;
 pub struct Flag3Config<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
+    /// An advice columns that acts as a selector for flag3's gate.
+    /// [`Out.flag3`](crate::circuits::tables::aux::Out)
     s_flag3: Column<Advice>,
 
     a: Column<Advice>,
@@ -62,7 +64,7 @@ impl<const WORD_BITS: u32> Flag3Config<WORD_BITS> {
                         + (one.clone() - flag_n)
                             * (c.clone() - a.clone() - one.clone() - two * ro - re),
                     // This is just to ensure the r decompose is correct.
-                    // TODO we should expiment with decompose taking an expression rather
+                    // We should experiment with decompose taking an expression rather
                     // than a column. This would make decompose gates less reusable, but
                     // might save a column in a few cases.
                     //
@@ -92,6 +94,7 @@ impl<const WORD_BITS: u32> Flag3Config<WORD_BITS> {
         c: F,
         offset: usize,
     ) {
+        // Used to prove `a < c` when c != 0.
         let r = if c == F::zero() {
             F::zero()
         } else {

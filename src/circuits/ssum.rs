@@ -13,8 +13,8 @@ use super::tables::signed::SignedConfig;
 pub struct SSumConfig<const WORD_BITS: u32> {
     /// A Selector denoting the extent of the exe table.
     s_table: Selector,
-    /// An advice columns that acts as a selector for sum's gates.
-    /// `Out.sum`
+    /// An advice columns that acts as a selector for ssum's gate.
+    /// [`Out.ssum`](crate::circuits::tables::aux::Out)
     s_sum: Column<Advice>,
 
     a: SignedConfig<WORD_BITS>,
