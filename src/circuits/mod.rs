@@ -9,3 +9,5 @@ pub mod sprod;
 pub mod ssum;
 pub mod sum;
 pub mod tables;
+pub mod xor;
+pub mod logic;

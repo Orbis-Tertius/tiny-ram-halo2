@@ -14,7 +14,7 @@ use crate::{
     circuits::{
         and::AndConfig, flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
         modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig,
-        sum::SumConfig,
+        sum::SumConfig, xor::XorConfig,
     },
     leak_once,
     trace::{Instruction, RegName, Registers, Trace},
@@ -436,6 +436,17 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 b,
                 c,
             );
+
+            let xor = XorConfig::configure(
+                &mut meta,
+                even_bits,
+                table_max_len,
+                temp_var_selectors.out.xor,
+                a_decomp,
+                b,
+                c,
+            );
+
 
             ProdConfig::<WORD_BITS>::configure(
                 &mut meta,
