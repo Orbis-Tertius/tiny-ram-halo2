@@ -12,9 +12,9 @@ use halo2_proofs::{
 use crate::{
     assign::{NewColumn, TrackColumns},
     circuits::{
-        and::AndConfig, flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
-        modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig, ssum::SSumConfig,
-        sum::SumConfig, xor::XorConfig,
+        flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
+        logic::LogicConfig, modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig,
+        ssum::SSumConfig, sum::SumConfig, xor::XorConfig,
     },
     leak_once,
     trace::{Instruction, RegName, Registers, Trace},
@@ -78,7 +78,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
     // Auxiliary entries used by mutually exclusive constraints.
     even_bits: EvenBitsTable<WORD_BITS>,
-    and: AndConfig<WORD_BITS>,
+    and: LogicConfig<WORD_BITS>,
     ssum: SSumConfig<WORD_BITS>,
     sprod: SProdConfig<WORD_BITS>,
 
@@ -427,26 +427,16 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 even_bits,
             );
 
-            let and = AndConfig::configure(
+            let and = LogicConfig::configure(
                 &mut meta,
                 even_bits,
                 table_max_len,
                 temp_var_selectors.out.and,
-                a_decomp,
-                b,
-                c,
-            );
-
-            let xor = XorConfig::configure(
-                &mut meta,
-                even_bits,
-                table_max_len,
                 temp_var_selectors.out.xor,
                 a_decomp,
                 b,
                 c,
             );
-
 
             ProdConfig::<WORD_BITS>::configure(
                 &mut meta,
