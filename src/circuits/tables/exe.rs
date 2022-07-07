@@ -14,7 +14,7 @@ use crate::{
     circuits::{
         flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
         logic::LogicConfig, modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig,
-        ssum::SSumConfig, sum::SumConfig, xor::XorConfig,
+        ssum::SSumConfig, sum::SumConfig,
     },
     leak_once,
     trace::{Instruction, RegName, Registers, Trace},
@@ -822,6 +822,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 Instruction::And(_) => {
                                     and.assign_and(&mut region, ta, tb, offset);
                                 }
+                                Instruction::Xor(_) => {
+                                    and.assign_and(&mut region, ta, tb, offset);
+                                }
                                 // SUM uses only temporary variables
                                 Instruction::Add(_)
                                 | Instruction::Sub(_)
@@ -982,6 +985,34 @@ mod tests {
         let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
         assert_eq!(trace.ans.0, 1);
         trace
+    }
+
+    fn mov_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::And(And {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_xor_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Xor(Xor {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
     }
 
     fn mov_add_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
@@ -1212,6 +1243,16 @@ mod tests {
         #[test]
         fn load_and_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
             mock_prover_test::<8, 8>(load_and_answer(a, b))
+        }
+
+        #[test]
+        fn mov_and_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_and_answer(a, b))
+        }
+
+        #[test]
+        fn mov_xor_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_xor_answer(a, b))
         }
 
         #[test]
