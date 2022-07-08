@@ -817,7 +817,7 @@ mod tests {
 
             #[test]
             fn all_8_bit_words_test(s in prop::collection::vec(valid_triple(8), 10)) {
-                gen_proofs_and_verify::<8, _>(valid_circuits::<8, 0>(s))
+                gen_proofs_and_verify::<8, _>(valid_circuits::<8, 2>(s))
             }
 
             #[test]
@@ -827,12 +827,12 @@ mod tests {
 
             #[test]
             fn all_16_bit_words_test(s in prop::collection::vec(valid_triple(16), 10)) {
-                gen_proofs_and_verify::<16, _>(valid_circuits::<16, 0>(s))
+                gen_proofs_and_verify::<16, _>(valid_circuits::<16, 2>(s))
             }
 
             #[test]
             fn all_8_bit_words_test_bad_proof(a in 0..2u64.pow(8), b in 0..2u64.pow(8), c in 0..2u64.pow(8)) {
-                prop_assume!(c != a & b);
+                prop_assume!(c != a | b);
                 let circuit = LogicCircuit::<Fp, 8, 2> {a: Some(a.into()), b: Some(b.into())};
                 gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into()])
             }
@@ -840,7 +840,7 @@ mod tests {
             // TODO mix valid and invalid
             #[test]
             fn all_16_bit_words_test_bad_proof(a in 0..2u64.pow(16), b in 0..2u64.pow(16), c in 0..2u64.pow(16)) {
-                prop_assume!(c != a & b);
+                prop_assume!(c != a | b);
                 let circuit = LogicCircuit::<Fp, 16, 2> {a: Some(a.into()), b: Some(b.into())};
                 gen_proofs_and_verify_should_fail::<16, _>(circuit, vec![c.into()])
             }
@@ -860,12 +860,12 @@ mod tests {
 
             #[test]
             fn all_24_bit_words_test(s in prop::collection::vec(valid_triple(24), 10)) {
-                gen_proofs_and_verify::<24, _>(valid_circuits::<24, 0>(s))
+                gen_proofs_and_verify::<24, _>(valid_circuits::<24, 2>(s))
             }
 
             #[test]
             fn all_24_bit_words_test_bad_proof(a in 0..2u64.pow(24), b in 0..2u64.pow(24), c in 0..2u64.pow(24)) {
-                prop_assume!(c != a & b);
+                prop_assume!(c != a | b);
                 let circuit = LogicCircuit::<Fp, 24, 2> {a: Some(a.into()), b: Some(b.into())};
                 gen_proofs_and_verify_should_fail::<24, _>(circuit, vec![c.into()])
             }
@@ -901,7 +901,7 @@ mod tests {
                 b: Some(Fp::from(b)),
             };
 
-            let c = Fp::from(a & b);
+            let c = Fp::from(a | b);
 
             // Arrange the public input. We expose the bitwise AND result in row 0
             // of the instance column, so we position it there in our public inputs.
