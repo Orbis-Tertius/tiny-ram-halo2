@@ -535,7 +535,9 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                out: Out { xor: true, ..out },
+                // FIXME
+                // out: Out { xor: true, ..out },
+                out,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
