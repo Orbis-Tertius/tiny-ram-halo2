@@ -78,7 +78,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 
     // Auxiliary entries used by mutually exclusive constraints.
     even_bits: EvenBitsTable<WORD_BITS>,
-    and: LogicConfig<WORD_BITS>,
+    logic: LogicConfig<WORD_BITS>,
     ssum: SSumConfig<WORD_BITS>,
     sprod: SProdConfig<WORD_BITS>,
 
@@ -422,12 +422,16 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 a,
                 // The even_bits decomposition of `a` should be enabled anytime signed `a` is.
-                &[temp_var_selectors.out.and, temp_var_selectors.out.ssum],
+                &[
+                    temp_var_selectors.out.and,
+                    temp_var_selectors.out.xor,
+                    temp_var_selectors.out.ssum,
+                ],
                 exe_len,
                 even_bits,
             );
 
-            let and = LogicConfig::configure(
+            let logic = LogicConfig::configure(
                 &mut meta,
                 even_bits,
                 table_max_len,
@@ -452,7 +456,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 exe_len,
                 &[temp_var_selectors.out.ssum],
-                and.a,
+                logic.a,
                 even_bits,
             );
 
@@ -525,7 +529,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 d,
                 temp_var_selectors,
                 even_bits,
-                and,
+                logic,
                 ssum,
                 sprod,
                 intermediate: meta.1,
@@ -646,7 +650,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             d,
             temp_var_selectors,
             even_bits: _,
-            and,
+            logic,
             ssum,
             sprod,
             intermediate: _,
@@ -820,10 +824,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             match step.instruction {
                                 Instruction::And(_) => {
-                                    and.assign_and(&mut region, ta, tb, offset);
+                                    logic.assign_and(&mut region, ta, tb, offset);
                                 }
                                 Instruction::Xor(_) => {
-                                    and.assign_and(&mut region, ta, tb, offset);
+                                    logic.assign_xor(&mut region, ta, tb, offset);
                                 }
                                 // SUM uses only temporary variables
                                 Instruction::Add(_)
@@ -842,6 +846,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 ),
                                 Instruction::UMod(_) | Instruction::UDiv(_) => {
                                     flag3.assign_flag3(&mut region, ta, tc, offset);
+                                }
+                                Instruction::Mov(_) => {
+                                    logic.assign_xor(&mut region, ta, tb, offset);
                                 }
 
                                 // TODO

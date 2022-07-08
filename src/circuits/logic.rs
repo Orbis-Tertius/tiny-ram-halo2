@@ -52,13 +52,14 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
         b: Column<Advice>,
         res: Column<Advice>,
     ) -> Self {
-        let b = EvenBitsConfig::configure(meta, b, &[s_and], s_table, even_bits);
+        let b =
+            EvenBitsConfig::configure(meta, b, &[s_and, s_xor], s_table, even_bits);
 
         let even_sum = meta.new_column();
         let even_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             even_sum,
-            &[s_and],
+            &[s_and, s_xor],
             s_table,
             a.even_bits,
         );
@@ -67,7 +68,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
         let odd_sum = EvenBitsConfig::<WORD_BITS>::configure(
             meta,
             odd_sum,
-            &[s_and],
+            &[s_and, s_xor],
             s_table,
             a.even_bits,
         );
@@ -139,18 +140,18 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
             )
         });
 
-        meta.create_gate("xor", |meta| {
-            let s_table = meta.query_selector(s_table);
-            let s_xor = meta.query_advice(s_xor, Rotation::cur());
-            let ee = meta.query_advice(even_sum.even, Rotation::cur());
-            let oe = meta.query_advice(odd_sum.even, Rotation::cur());
-            let res = meta.query_advice(res, Rotation::cur());
+        // meta.create_gate("xor", |meta| {
+        //     let s_table = meta.query_selector(s_table);
+        //     let s_xor = meta.query_advice(s_xor, Rotation::cur());
+        //     let ee = meta.query_advice(even_sum.even, Rotation::cur());
+        //     let oe = meta.query_advice(odd_sum.even, Rotation::cur());
+        //     let res = meta.query_advice(res, Rotation::cur());
 
-            Constraints::with_selector(
-                s_table * s_xor,
-                [ee + Expression::Constant(F::from(2)) * oe - res],
-            )
-        });
+        //     Constraints::with_selector(
+        //         s_table * s_xor,
+        //         [ee + Expression::Constant(F::from(2)) * oe - res],
+        //     )
+        // });
 
         conf
     }
