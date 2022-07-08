@@ -437,6 +437,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 table_max_len,
                 temp_var_selectors.out.and,
                 temp_var_selectors.out.xor,
+                temp_var_selectors.out.or,
                 a_decomp,
                 b,
                 c,
@@ -829,6 +830,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 Instruction::Xor(_) => {
                                     logic.assign_xor(&mut region, ta, tb, offset);
                                 }
+                                Instruction::Or(_) => {
+                                    logic.assign_or(&mut region, ta, tb, offset);
+                                }
                                 // SUM uses only temporary variables
                                 Instruction::Add(_)
                                 | Instruction::Sub(_)
@@ -1014,6 +1018,20 @@ mod tests {
     ) -> Trace<WORD_BITS, REG_COUNT> {
         mov_ins_answer(
             Instruction::Xor(Xor {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_or_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Or(Or {
                 ri: RegName(1),
                 rj: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(a)),
@@ -1260,6 +1278,11 @@ mod tests {
         #[test]
         fn mov_xor_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
             mock_prover_test::<8, 8>(mov_xor_answer(a, b))
+        }
+
+        #[test]
+        fn mov_or_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_or_answer(a, b))
         }
 
         #[test]
