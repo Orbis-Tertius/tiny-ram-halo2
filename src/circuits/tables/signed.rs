@@ -1,5 +1,5 @@
 use crate::assign::ConstraintSys;
-use halo2_proofs::circuit::Region;
+use halo2_proofs::circuit::{Region, Value};
 use halo2_proofs::plonk::{Constraints, VirtualCells};
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -117,7 +117,12 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
         let msb = (word >> (WORD_BITS - 1)) & 1;
 
         region
-            .assign_advice(|| "msb", self.msb, offset, || Ok(F::from_u128(msb)))
+            .assign_advice(
+                || "msb",
+                self.msb,
+                offset,
+                || Value::known(F::from_u128(msb)),
+            )
             .unwrap();
 
         // TODO revist this, compare this approach to using `-F::from(n)`;
@@ -134,7 +139,7 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
                 || "word_sigma",
                 self.word_sigma,
                 offset,
-                || Ok(F::from_u128(word_sigma)),
+                || Value::known(F::from_u128(word_sigma)),
             )
             .unwrap();
 
@@ -149,7 +154,12 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
 
         self.check_sign.assign_decompose(region, cs, offset);
         region
-            .assign_advice(|| "check_sign", self.check_sign.word, offset, || Ok(cs))
+            .assign_advice(
+                || "check_sign",
+                self.check_sign.word,
+                offset,
+                || Value::known(cs),
+            )
             .unwrap();
     }
 }

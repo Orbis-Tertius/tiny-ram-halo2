@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Chip, Layouter, Region, SimpleFloorPlanner},
+    circuit::{Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
     },
@@ -684,7 +684,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || "default fill",
                                     *c,
                                     offset,
-                                    || Ok(F::from(u64::MAX)),
+                                    || Value::known(F::from(u64::MAX)),
                                 )
                                 .unwrap();
                         }
@@ -694,7 +694,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("time: {}", step.time.0),
                                 time,
                                 offset,
-                                || Ok(F::from_u128(step.time.0 as u128)),
+                                || Value::known(F::from_u128(step.time.0 as u128)),
                             )
                             .unwrap();
 
@@ -703,7 +703,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("pc: {}", step.pc.0),
                                 pc,
                                 offset,
-                                || Ok(F::from_u128(step.pc.0 as u128)),
+                                || Value::known(F::from_u128(step.pc.0 as u128)),
                             )
                             .unwrap();
 
@@ -712,7 +712,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("opcode: {}", step.instruction.opcode()),
                                 opcode,
                                 offset,
-                                || Ok(F::from_u128(step.instruction.opcode())),
+                                || {
+                                    Value::known(F::from_u128(
+                                        step.instruction.opcode(),
+                                    ))
+                                },
                             )
                             .unwrap();
 
@@ -727,7 +731,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("immediate: {}", immediate_v),
                                 immediate,
                                 offset,
-                                || Ok(F::from_u128(immediate_v)),
+                                || Value::known(F::from_u128(immediate_v)),
                             )
                             .unwrap();
 
@@ -740,7 +744,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("r{}: {}", rn, v.0),
                                     *reg,
                                     offset,
-                                    || Ok(F::from_u128(v.into())),
+                                    || Value::known(F::from_u128(v.into())),
                                 )
                                 .unwrap();
                         }
@@ -750,7 +754,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("flag: {}", step.flag),
                                 flag,
                                 offset,
-                                || Ok(F::from(step.flag)),
+                                || Value::known(F::from(step.flag)),
                             )
                             .unwrap();
 
@@ -781,7 +785,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("a: {:?}", ta),
                                     a,
                                     offset,
-                                    || Ok(ta),
+                                    || Value::known(ta),
                                 )
                                 .unwrap();
                             region
@@ -789,7 +793,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("b: {:?}", tb),
                                     b,
                                     offset,
-                                    || Ok(tb),
+                                    || Value::known(tb),
                                 )
                                 .unwrap();
                             region
@@ -797,7 +801,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("c: {:?}", tc),
                                     c,
                                     offset,
-                                    || Ok(tc),
+                                    || Value::known(tc),
                                 )
                                 .unwrap();
                             region
@@ -805,7 +809,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("d: {:?}", td),
                                     d,
                                     offset,
-                                    || Ok(td),
+                                    || Value::known(td),
                                 )
                                 .unwrap();
 
@@ -877,7 +881,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     || format!("vaddr: {}", vaddr),
                                     value,
                                     offset,
-                                    || Ok(F::from_u128(vaddr)),
+                                    || Value::known(F::from_u128(vaddr)),
                                 )
                                 .unwrap();
                         }
@@ -888,7 +892,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             || format!("Terminating time: {}", 0),
                             time,
                             trace.exe.len(),
-                            || Ok(F::zero()),
+                            || Value::known(F::zero()),
                         )
                         .unwrap();
 

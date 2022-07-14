@@ -22,9 +22,9 @@ pub fn gen_proofs_and_verify<
     let empty_circuit = C::default();
     let vk = keygen_vk(&params, &empty_circuit).unwrap();
 
-    let pk = keygen_pk(&params, vk, &empty_circuit).unwrap();
+    let pk = keygen_pk(&params, vk.clone(), &empty_circuit).unwrap();
 
-    let inputs: Vec<(C, Vec<&[Fp]>)> = inputs
+    let inputs_ref: Vec<(C, Vec<&[Fp]>)> = inputs
         .iter()
         .map(|(circuit, public_input)| {
             (
@@ -34,7 +34,7 @@ pub fn gen_proofs_and_verify<
         })
         .collect();
 
-    let proofs: Vec<(Vec<u8>, &[&[Fp]])> = inputs
+    let proofs: Vec<(Vec<u8>, &[&[Fp]])> = inputs_ref
         .iter()
         .map(|(circuit, c)| {
             let mut transcript = Blake2bWrite::<_, vesta::Affine, _>::init(vec![]);
@@ -53,16 +53,12 @@ pub fn gen_proofs_and_verify<
         })
         .collect();
 
-    let mut verifier = BatchVerifier::new(&params, OsRng);
-    for (proof, c) in &proofs {
-        let mut transcript = Blake2bRead::init(&proof[..]);
-
-        verifier =
-            verify_proof(&params, pk.get_vk(), verifier, &[c], &mut transcript)
-                .expect("could not verify_proof");
+    let mut verifier = BatchVerifier::new();
+    for ((proof, _), (_, c)) in proofs.iter().zip(inputs.iter()) {
+        verifier.add_proof(vec![c.clone()], proof.clone());
     }
 
-    let verified = verifier.finalize();
+    let verified = verifier.finalize(&params, &vk);
     if !verified {
         for (proof, c) in proofs {
             let verifier = SingleVerifier::new(&params);

@@ -1,6 +1,6 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Region},
+    circuit::{AssignedCell, Region, Value},
     plonk::{Advice, Column, ConstraintSystem, Fixed, Instance},
 };
 
@@ -90,7 +90,8 @@ impl<'r, F: FieldExt>
         column: Column<Advice>,
         f: F,
     ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
-        self.0.assign_advice(|| "", column, self.1, &mut || Ok(f))
+        self.0
+            .assign_advice(|| "", column, self.1, &mut || Value::known(f))
     }
 }
 

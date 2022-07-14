@@ -2,7 +2,7 @@ use std::{marker::PhantomData, ops::Deref};
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Chip, Layouter, Region},
+    circuit::{AssignedCell, Chip, Layouter, Region, Value},
     plonk::{
         Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn,
         VirtualCells,
@@ -75,7 +75,7 @@ impl<const WORD_BITS: u32> EvenBitsTable<WORD_BITS> {
                         || format!("even_bits row {}", i),
                         self.0,
                         i,
-                        || Ok(F::from(even_bits_at(i) as u64)),
+                        || Value::known(F::from(even_bits_at(i) as u64)),
                     )?;
                 }
                 Ok(())
@@ -181,12 +181,12 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
     ) -> (EvenBits<F>, OddBits<F>) {
         let (e, o) = decompose(word);
         let _ = region
-            .assign_advice(|| "even bits", self.even, offset, || Ok(e.0))
+            .assign_advice(|| "even bits", self.even, offset, || Value::known(e.0))
             .map(EvenBits)
             .unwrap();
 
         let _ = region
-            .assign_advice(|| "odd bits", self.odd, offset, || Ok(o.0))
+            .assign_advice(|| "odd bits", self.odd, offset, || Value::known(o.0))
             .map(OddBits)
             .unwrap();
         (e, o)
@@ -257,21 +257,11 @@ impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F>
 
         let o_eo = c.value().cloned().map(decompose);
         let e_cell = region
-            .assign_advice(
-                || "even bits",
-                config.even,
-                0,
-                || o_eo.map(|eo| *eo.0).ok_or(Error::Synthesis),
-            )
+            .assign_advice(|| "even bits", config.even, 0, || o_eo.map(|eo| *eo.0))
             .map(EvenBits)?;
 
         let o_cell = region
-            .assign_advice(
-                || "odd bits",
-                config.odd,
-                0,
-                || o_eo.map(|eo| *eo.1).ok_or(Error::Synthesis),
-            )
+            .assign_advice(|| "odd bits", config.odd, 0, || o_eo.map(|eo| *eo.1))
             .map(OddBits)?;
 
         Ok((e_cell, o_cell))
@@ -395,7 +385,7 @@ mod mem_test {
                                     || "word",
                                     config.word,
                                     0,
-                                    || Ok(word),
+                                    || Value::known(word),
                                 )
                                 .unwrap();
                             config.assign_decompose(&mut region, word, 0);

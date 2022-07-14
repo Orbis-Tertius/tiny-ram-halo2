@@ -1,7 +1,7 @@
 // TODO add tests using dead code
 #![allow(dead_code)]
 use crate::assign::ConstraintSys;
-use halo2_proofs::circuit::Region;
+use halo2_proofs::circuit::{Region, Value};
 use halo2_proofs::plonk::{Constraints, Expression};
 use halo2_proofs::{
     arithmetic::FieldExt,
@@ -101,7 +101,7 @@ impl<const WORD_BITS: u32> Flag3Config<WORD_BITS> {
             c - a - F::one()
         };
         region
-            .assign_advice(|| "r", self.r.word, offset, || Ok(r))
+            .assign_advice(|| "r", self.r.word, offset, || Value::known(r))
             .unwrap();
         self.r.assign_decompose(region, r, offset);
     }

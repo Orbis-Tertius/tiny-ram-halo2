@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Chip, Layouter, Region},
+    circuit::{Chip, Layouter, Region, Value},
     plonk::{Advice, Column, ConstraintSystem, Selector},
 };
 
@@ -77,7 +77,7 @@ impl<F: FieldExt> MemChip<F> {
                                     || format!("addr: {}", addr.0),
                                     config.address,
                                     0,
-                                    || Ok(F::from_u128(addr.0 as u128)),
+                                    || Value::known(F::from_u128(addr.0 as u128)),
                                 )
                                 .unwrap();
 
@@ -86,7 +86,11 @@ impl<F: FieldExt> MemChip<F> {
                                     || format!("initial_value: {}", addr.0),
                                     config.address,
                                     0,
-                                    || Ok(F::from_u128(initial_value.0 as u128)),
+                                    || {
+                                        Value::known(F::from_u128(
+                                            initial_value.0 as u128,
+                                        ))
+                                    },
                                 )
                                 .unwrap();
 
