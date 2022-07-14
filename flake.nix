@@ -18,11 +18,11 @@
       source = ./.;
       packageOverrides.tiny-ram-halo2 = {
         set-toolchain.overrideRustToolchain = old: { inherit (toolchain) cargo rustc; };
-        freetype-sys.nativeBuildInputs = [ pkgs.cmake ];
-        expat-sys.nativeBuildInputs = [ pkgs.cmake ];
+        freetype-sys.nativeBuildInputs = old: old ++ [ pkgs.cmake ];
+        expat-sys.nativeBuildInputs = old: old ++ [ pkgs.cmake ];
         servo-fontconfig-sys = {
           nativeBuildInputs = old: old ++ [ pkgs.pkg-config ];
-          buildInputs = [ pkgs.fontconfig ];
+          buildInputs = old: old ++ [ pkgs.fontconfig ];
         };
       };
     })
