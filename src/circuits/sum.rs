@@ -1,4 +1,5 @@
 use crate::assign::ConstraintSys;
+use halo2_proofs::circuit::Value;
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::plonk::Constraints;
 use halo2_proofs::{
@@ -180,7 +181,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for SumCircuit<Fp, WORD_BITS> {
                             || "s_sum",
                             config.0.s_sum,
                             0,
-                            || Ok(Fp::one()),
+                            || Value::known(Fp::one()),
                         )
                         .unwrap();
 
@@ -191,13 +192,18 @@ impl<const WORD_BITS: u32> Circuit<Fp> for SumCircuit<Fp, WORD_BITS> {
                         let b = self.b.unwrap();
 
                         region
-                            .assign_advice(|| "a", config.0.a, 0, || Ok(a))
+                            .assign_advice(|| "a", config.0.a, 0, || Value::known(a))
                             .unwrap();
                         region
-                            .assign_advice(|| "b", config.0.b, 0, || Ok(b))
+                            .assign_advice(|| "b", config.0.b, 0, || Value::known(b))
                             .unwrap();
                         region
-                            .assign_advice(|| "d", config.0.d, 0, || Ok(Fp::zero()))
+                            .assign_advice(
+                                || "d",
+                                config.0.d,
+                                0,
+                                || Value::known(Fp::zero()),
+                            )
                             .unwrap();
 
                         region
@@ -205,7 +211,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for SumCircuit<Fp, WORD_BITS> {
                                 || "fill for the mock prover",
                                 config.0.flag,
                                 0,
-                                || Ok(Fp::zero()),
+                                || Value::known(Fp::zero()),
                             )
                             .unwrap();
                     }

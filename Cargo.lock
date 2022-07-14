@@ -549,8 +549,9 @@ dependencies = [
 
 [[package]]
 name = "halo2_proofs"
-version = "0.1.0"
-source = "git+https://github.com/zcash/halo2.git?rev=8075b216e850035cde940c96eb93bf285254ee2e#8075b216e850035cde940c96eb93bf285254ee2e"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cff771b9a2445cd2545c9ef26d863c290fbb44ae440c825a20eb7156f67a949a"
 dependencies = [
  "blake2b_simd",
  "ff 0.12.0",
@@ -560,6 +561,7 @@ dependencies = [
  "rand_core",
  "rayon",
  "tabbycat",
+ "tracing",
 ]
 
 [[package]]
@@ -714,6 +716,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "once_cell"
+version = "1.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18a6dbe30758c9f83eb00cbea4ac95966305f5a7772f3f42ebfc7fc7eddbd8e1"
+
+[[package]]
 name = "pasta_curves"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -770,6 +778,12 @@ checksum = "10f4872ae94d7b90ae48754df22fd42ad52ce740b8f370b03da4835417403e53"
 dependencies = [
  "ucd-trie",
 ]
+
+[[package]]
+name = "pin-project-lite"
+version = "0.2.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0a7ae3ac2f1173085d398531c705756c94a4c56843785df85a60c1a0afac116"
 
 [[package]]
 name = "pkg-config"
@@ -1167,6 +1181,38 @@ dependencies = [
  "plotters",
  "proptest",
  "rand_core",
+]
+
+[[package]]
+name = "tracing"
+version = "0.1.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a400e31aa60b9d44a52a8ee0343b5b18566b03a8321e0d321f695cf56e940160"
+dependencies = [
+ "cfg-if",
+ "pin-project-lite",
+ "tracing-attributes",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11c75893af559bc8e10716548bdef5cb2b983f8e637db9d0e15126b61b484ee2"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b7358be39f2f274f322d2aaed611acc57f382e8eb1e5b48cb9ae30933495ce7"
+dependencies = [
+ "once_cell",
 ]
 
 [[package]]

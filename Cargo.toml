@@ -18,6 +18,5 @@ proptest = "1.0.0"
 lazy_static = "1.4.0"
 
 [dependencies.halo2_proofs]
-git = "https://github.com/zcash/halo2.git"
-rev = "8075b216e850035cde940c96eb93bf285254ee2e"
+version = "0.2.0"
 features = ["dev-graph"]

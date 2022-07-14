@@ -1,6 +1,6 @@
 use crate::assign::ConstraintSys;
 use crate::circuits::tables::even_bits::EvenBitsConfig;
-use halo2_proofs::circuit::Region;
+use halo2_proofs::circuit::{Region, Value};
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::plonk::Constraints;
 use halo2_proofs::{
@@ -200,7 +200,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
                 || "lhs_e + rhs_e",
                 self.even_sum.word,
                 offset,
-                || Ok(even_sum),
+                || Value::known(even_sum),
             )
             .unwrap();
         self.even_sum.assign_decompose(region, even_sum, offset);
@@ -211,7 +211,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
                 || "lhs_o + rhs_o",
                 self.odd_sum.word,
                 offset,
-                || Ok(odd_sum),
+                || Value::known(odd_sum),
             )
             .unwrap();
         self.odd_sum.assign_decompose(region, odd_sum, offset);
@@ -228,7 +228,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
 
         let res = F::from_u128(lhs.get_lower_128() & rhs.get_lower_128());
         let res = region
-            .assign_advice(|| "res", self.res, offset, || Ok(res))
+            .assign_advice(|| "res", self.res, offset, || Value::known(res))
             .unwrap();
         res
     }
@@ -244,7 +244,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
 
         let res = F::from_u128(lhs.get_lower_128() ^ rhs.get_lower_128());
         let res = region
-            .assign_advice(|| "res", self.res, offset, || Ok(res))
+            .assign_advice(|| "res", self.res, offset, || Value::known(res))
             .unwrap();
         res
     }
@@ -260,7 +260,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
 
         let res = F::from_u128(lhs.get_lower_128() | rhs.get_lower_128());
         let res = region
-            .assign_advice(|| "res", self.res, offset, || Ok(res))
+            .assign_advice(|| "res", self.res, offset, || Value::known(res))
             .unwrap();
         res
     }
@@ -377,7 +377,7 @@ impl<const WORD_BITS: u32, const OP: usize> Circuit<Fp>
                             || "s_and",
                             config.0.s_and,
                             0,
-                            || Ok(Fp::from(s_vec[0])),
+                            || Value::known(Fp::from(s_vec[0])),
                         )
                         .unwrap();
                     region
@@ -385,7 +385,7 @@ impl<const WORD_BITS: u32, const OP: usize> Circuit<Fp>
                             || "s_xor",
                             config.0.s_xor,
                             0,
-                            || Ok(Fp::from(s_vec[1])),
+                            || Value::known(Fp::from(s_vec[1])),
                         )
                         .unwrap();
                     region
@@ -393,7 +393,7 @@ impl<const WORD_BITS: u32, const OP: usize> Circuit<Fp>
                             || "s_or",
                             config.0.s_or,
                             0,
-                            || Ok(Fp::from(s_vec[2])),
+                            || Value::known(Fp::from(s_vec[2])),
                         )
                         .unwrap();
 
@@ -404,10 +404,20 @@ impl<const WORD_BITS: u32, const OP: usize> Circuit<Fp>
                         let rhs = self.b.unwrap();
 
                         region
-                            .assign_advice(|| "lhs", config.0.a.word, 0, || Ok(lhs))
+                            .assign_advice(
+                                || "lhs",
+                                config.0.a.word,
+                                0,
+                                || Value::known(lhs),
+                            )
                             .unwrap();
                         region
-                            .assign_advice(|| "rhs", config.0.b.word, 0, || Ok(rhs))
+                            .assign_advice(
+                                || "rhs",
+                                config.0.b.word,
+                                0,
+                                || Value::known(rhs),
+                            )
                             .unwrap();
 
                         match OP {
