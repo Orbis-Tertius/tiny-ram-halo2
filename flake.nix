@@ -6,10 +6,10 @@
   outputs = { self, nixpkgs, dream2nix, fenix }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      channelVersion = "1.61.0";
+      channelVersion = "1.62.0";
       toolchain = fenix.packages.x86_64-linux.toolchainOf {
         channel = channelVersion;
-        sha256 = "sha256-oro0HsosbLRAuZx68xd0zfgPl6efNj2AQruKRq3KA2g=";
+        sha256 = "sha256-AoqjoLifz8XrZWP7piauFfWCvhzPMLKxfv57h6Ng1oM=";
       };
     in
     (dream2nix.lib.makeFlakeOutputs {
@@ -19,6 +19,7 @@
       packageOverrides.tiny-ram-halo2 = {
         set-toolchain.overrideRustToolchain = old: { inherit (toolchain) cargo rustc; };
         freetype-sys.nativeBuildInputs = [ pkgs.cmake ];
+        expat-sys.nativeBuildInputs = [ pkgs.cmake ];
         servo-fontconfig-sys = {
           nativeBuildInputs = old: old ++ [ pkgs.pkg-config ];
           buildInputs = [ pkgs.fontconfig ];
