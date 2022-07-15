@@ -5,6 +5,7 @@ pub mod flag3;
 pub mod logic;
 pub mod modulo;
 pub mod prod;
+pub mod shift;
 pub mod sprod;
 pub mod ssum;
 pub mod sum;
