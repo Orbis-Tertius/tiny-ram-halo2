@@ -60,31 +60,3 @@ impl<const WORD_BITS: u32> PowTable<WORD_BITS> {
         )
     }
 }
-
-#[derive(Clone, Debug)]
-pub struct PowChip<F: FieldExt, const WORD_BITS: u32> {
-    config: PowConfig<WORD_BITS>,
-    _marker: PhantomData<F>,
-}
-
-impl<F: FieldExt, const WORD_BITS: u32> PowChip<F, WORD_BITS> {
-    pub fn construct(config: <Self as Chip<F>>::Config) -> Self {
-        Self {
-            config,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for PowChip<F, WORD_BITS> {
-    type Config = PowConfig<WORD_BITS>;
-    type Loaded = ();
-
-    fn config(&self) -> &Self::Config {
-        &self.config
-    }
-
-    fn loaded(&self) -> &Self::Loaded {
-        &()
-    }
-}

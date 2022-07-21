@@ -1,5 +1,5 @@
 use crate::assign::ConstraintSys;
-use halo2_proofs::circuit::Value;
+use halo2_proofs::circuit::{Region, Value};
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::plonk::Constraints;
 use halo2_proofs::{
@@ -25,13 +25,9 @@ pub struct ShiftConfig<const WORD_BITS: u32> {
     s_shift: Column<Advice>,
 
     a: Column<Advice>,
-    b: Column<Advice>,
+    b_decompose: EvenBitsConfig<WORD_BITS>,
     c: Column<Advice>,
     d: Column<Advice>,
-
-    flag: Column<Advice>,
-
-    b_decompose: EvenBitsConfig<WORD_BITS>,
 
     a_shift: Column<Advice>,
     a_power: Column<Advice>,
@@ -45,13 +41,9 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         s_shift: Column<Advice>,
 
         a: Column<Advice>,
-        b: Column<Advice>,
+        b_decompose: EvenBitsConfig<WORD_BITS>,
         c: Column<Advice>,
         d: Column<Advice>,
-
-        flag: Column<Advice>,
-
-        b_decompose: EvenBitsConfig<WORD_BITS>,
 
         a_shift: Column<Advice>,
         a_power: Column<Advice>,
@@ -62,11 +54,9 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             s_table,
             s_shift,
             a,
-            b,
+            b_decompose,
             c,
             d,
-            flag,
-            b_decompose,
             a_shift,
             a_power,
             pow,
@@ -79,13 +69,9 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         s_shift: Column<Advice>,
 
         a: Column<Advice>,
-        b: Column<Advice>,
+        b_decompose: EvenBitsConfig<WORD_BITS>,
         c: Column<Advice>,
         d: Column<Advice>,
-
-        flag: Column<Advice>,
-
-        b_decompose: EvenBitsConfig<WORD_BITS>,
 
         a_shift: Column<Advice>,
         a_power: Column<Advice>,
@@ -96,11 +82,9 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             s_table,
             s_shift,
             a,
-            b,
+            b_decompose,
             c,
             d,
-            flag,
-            b_decompose,
             a_shift,
             a_power,
             pow,
@@ -108,11 +92,9 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             s_table,
             s_shift,
             a,
-            b,
+            b_decompose,
             c,
             d,
-            flag,
-            b_decompose,
             a_shift,
             a_power,
             pow,
@@ -127,15 +109,11 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             let s_shift = meta.query_advice(s_shift, Rotation::cur());
 
             let a = meta.query_advice(a, Rotation::cur());
-            let b = meta.query_advice(b, Rotation::cur());
-            let c = meta.query_advice(c, Rotation::cur());
-            let d = meta.query_advice(d, Rotation::cur());
 
             let b_o = meta.query_advice(b_decompose.odd, Rotation::cur());
             let b_e = meta.query_advice(b_decompose.even, Rotation::cur());
 
             let a_shift = meta.query_advice(a_shift, Rotation::cur());
-            let a_power = meta.query_advice(a_power, Rotation::cur());
 
             Constraints::with_selector(
                 s_table * s_shift,
@@ -146,32 +124,41 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             )
         });
 
-        let _ = meta.cs().lookup(|meta| {
-            let one = Expression::Constant(F::one());
-            let two = Expression::Constant(F::from(2));
-            let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
+        // let _ = meta.cs().lookup(|meta| {
+        //     let one = Expression::Constant(F::one());
+        //     let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
 
-            let s_table = meta.query_selector(s_table);
-            let s_shift = meta.query_advice(s_shift, Rotation::cur());
+        //     // let s_table = meta.query_selector(s_table);
+        //     let s_shift = meta.query_advice(s_shift, Rotation::cur());
+        //     let a = meta.query_advice(a, Rotation::cur());
 
-            let a = meta.query_advice(a, Rotation::cur());
-            let b = meta.query_advice(b, Rotation::cur());
-            let c = meta.query_advice(c, Rotation::cur());
-            let d = meta.query_advice(d, Rotation::cur());
+        //     let a_shift = meta.query_advice(a_shift, Rotation::cur());
+        //     let a_power = meta.query_advice(a_power, Rotation::cur());
 
-            let b_o = meta.query_advice(b_decompose.odd, Rotation::cur());
-            let b_e = meta.query_advice(b_decompose.even, Rotation::cur());
-
-            let a_shift = meta.query_advice(a_shift, Rotation::cur());
-            let a_power = meta.query_advice(a_power, Rotation::cur());
-
-            vec![
-                (a.clone() + a_shift * (word_bits - a), pow.values),
-                (a_power, pow.powers),
-            ]
-        });
+        //     vec![
+        //         (
+        //             s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
+        //             pow.values,
+        //         ),
+        //         // (a_power, pow.powers),
+        //         // When s_shift not set, we lookup (value: 0, value: 1)
+        //         (
+        //             (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
+        //             pow.powers,
+        //         ),
+        //     ]
+        // });
 
         conf
+    }
+
+    pub fn assign_shift<F: FieldExt>(
+        &self,
+        region: &mut Region<'_, F>,
+        word: F,
+        offset: usize,
+    ) {
+        region.assign_advice(|| "a_shift", self.a_shift, offset, )
     }
 }
 
@@ -206,8 +193,8 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for ShiftChip<F, WORD_BITS> {
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ShiftCircuit<F: FieldExt, const WORD_BITS: u32> {
-    pub a: Option<F>,
-    pub b: Option<F>,
+    pub word: Option<F>,
+    pub shift_bits: Option<F>,
 }
 
 impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
@@ -250,11 +237,9 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                 s_table,
                 s_shift,
                 a,
-                b,
+                b_decompose,
                 c,
                 d,
-                flag,
-                b_decompose,
                 a_shift,
                 a_power,
                 pow,
@@ -283,17 +268,25 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                         .unwrap();
 
                     // If a or b is None then we will see the error early.
-                    if self.a.is_some() || self.b.is_some() {
+                    if self.word.is_some() || self.shift_bits.is_some() {
                         // load private
-                        let a = self.a.unwrap();
-                        let b = self.b.unwrap();
+                        let a = self.shift_bits.unwrap();
+                        let b = self.word.unwrap();
 
                         region
                             .assign_advice(|| "a", config.0.a, 0, || Value::known(a))
                             .unwrap();
                         region
-                            .assign_advice(|| "b", config.0.b, 0, || Value::known(b))
+                            .assign_advice(
+                                || "b",
+                                config.0.b_decompose.word,
+                                0,
+                                || Value::known(b),
+                            )
                             .unwrap();
+
+                        config.0.b_decompose.assign_decompose(&mut region, b, 0);
+
                         region
                             .assign_advice(
                                 || "d",
@@ -303,14 +296,14 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                             )
                             .unwrap();
 
-                        region
-                            .assign_advice(
-                                || "fill for the mock prover",
-                                config.0.flag,
-                                0,
-                                || Value::known(Fp::zero()),
-                            )
-                            .unwrap();
+                        // region
+                        //     .assign_advice(
+                        //         || "fill for the mock prover",
+                        //         config.0.flag,
+                        //         0,
+                        //         || Value::known(Fp::zero()),
+                        //     )
+                        //     .unwrap();
                     }
 
                     region
@@ -323,15 +316,15 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                         )
                         .unwrap();
 
-                    region
-                        .assign_advice_from_instance(
-                            || "flag",
-                            config.1,
-                            1,
-                            config.0.flag,
-                            1,
-                        )
-                        .unwrap();
+                    // region
+                    //     .assign_advice_from_instance(
+                    //         || "flag",
+                    //         config.1,
+                    //         1,
+                    //         config.0.flag,
+                    //         1,
+                    //     )
+                    //     .unwrap();
 
                     Ok(())
                 },
@@ -350,17 +343,11 @@ mod tests {
 
     prop_compose! {
       fn valid_values(word_bits: u32)
-              (a in 0..2u64.pow(word_bits), b in 0..2u64.pow(word_bits))
+              (word in 0..2u64.pow(word_bits), s_bits in 0..(word_bits))
               -> (u64, u64, u64, bool) {
-        let c = a + b;
-        let max = 2u64.pow(word_bits);
-        let (c, flag) = if c >= max  {
-            (c - max, true)
-        } else {
-            (c, false)
-        };
+        let out = word >> s_bits;
 
-        (a, b, c, flag)
+        (word, s_bits as _, out, false)
       }
     }
 
@@ -371,8 +358,8 @@ mod tests {
             .map(|(a, b, c, flag)| {
                 (
                     ShiftCircuit {
-                        a: Some(a.into()),
-                        b: Some(b.into()),
+                        word: Some(a.into()),
+                        shift_bits: Some(b.into()),
                     },
                     vec![vec![c.into(), flag.into()]],
                 )
@@ -381,13 +368,6 @@ mod tests {
     }
 
     proptest! {
-        #[test]
-        fn fp_u128_test(n in 0..u128::MAX) {
-            let a = Fp::from_u128(n);
-            let b = a.get_lower_128();
-            assert_eq!(b, n)
-        }
-
         /// proptest does not support testing const generics.
         #[test]
         fn all_8_bit_words_mock_prover_test((a, b, c, flag) in valid_values(8)) {
@@ -416,11 +396,9 @@ mod tests {
         }
 
         #[test]
-        fn all_8_bit_words_test_bad_proof(a in 0..2u64.pow(8), b in 0..2u64.pow(8), c in 0..2u64.pow(8), flag: bool) {
-            let overflow_correct = flag && (a + b).checked_sub(2u64.pow(8)).map(|s| c == s).unwrap_or(false);
-            prop_assume!((c != a + b));
-            prop_assume!(!overflow_correct);
-            let circuit = ShiftCircuit::<Fp, 8> {a: Some(a.into()), b: Some(b.into())};
+        fn all_8_bit_words_test_bad_proof(word in 0..2u64.pow(8), shift_bits in 0..8u64, c in 0..2u64.pow(8), flag: bool) {
+            prop_assume!((c != word >> shift_bits));
+            let circuit = ShiftCircuit::<Fp, 8> {word: Some(word.into()), shift_bits: Some(shift_bits.into())};
             gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into(), flag.into()])
         }
     }
@@ -447,8 +425,8 @@ mod tests {
     fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64, c: u64, flag: bool) {
         let k = 1 + WORD_BITS / 2;
         let circuit: ShiftCircuit<Fp, WORD_BITS> = ShiftCircuit {
-            a: Some(Fp::from(a)),
-            b: Some(Fp::from(b)),
+            word: Some(Fp::from(a)),
+            shift_bits: Some(Fp::from(b)),
         };
 
         let prover =
