@@ -156,9 +156,29 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         &self,
         region: &mut Region<'_, F>,
         word: F,
+        shift_bits: usize,
         offset: usize,
     ) {
-        region.assign_advice(|| "a_shift", self.a_shift, offset, )
+        let a_shift = WORD_BITS < shift_bits as _;
+        region
+            .assign_advice(
+                || "a_shift",
+                self.a_shift,
+                offset,
+                || Value::known(F::from(a_shift)),
+            )
+            .unwrap();
+
+        region
+            .assign_advice(
+                || "a_power",
+                self.a_power,
+                offset,
+                || Value::known(F::from(2u64.pow(shift_bits as _))),
+            )
+            .unwrap();
+
+        self.b_decompose.assign_decompose(region, word, offset);
     }
 }
 
@@ -253,6 +273,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
+        config.0.b_decompose.even_bits.alloc_table(&mut layouter).unwrap();
         layouter
             .assign_region(
                 || "shift",
@@ -273,6 +294,13 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                         let a = self.shift_bits.unwrap();
                         let b = self.word.unwrap();
 
+                        config.0.assign_shift(
+                            &mut region,
+                            b,
+                            a.get_lower_128() as _,
+                            0,
+                        );
+
                         region
                             .assign_advice(|| "a", config.0.a, 0, || Value::known(a))
                             .unwrap();
@@ -284,8 +312,6 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                                 || Value::known(b),
                             )
                             .unwrap();
-
-                        config.0.b_decompose.assign_decompose(&mut region, b, 0);
 
                         region
                             .assign_advice(
