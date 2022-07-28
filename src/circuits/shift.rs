@@ -25,12 +25,13 @@ pub struct ShiftConfig<const WORD_BITS: u32> {
     s_shift: Column<Advice>,
 
     a: Column<Advice>,
-    b_decompose: EvenBitsConfig<WORD_BITS>,
+    b: Column<Advice>,
     c: Column<Advice>,
     d: Column<Advice>,
 
     a_shift: Column<Advice>,
     a_power: Column<Advice>,
+    r_decompose: EvenBitsConfig<WORD_BITS>,
 
     pow: PowTable<WORD_BITS>,
 }
@@ -41,12 +42,13 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         s_shift: Column<Advice>,
 
         a: Column<Advice>,
-        b_decompose: EvenBitsConfig<WORD_BITS>,
+        b: Column<Advice>,
         c: Column<Advice>,
         d: Column<Advice>,
 
         a_shift: Column<Advice>,
         a_power: Column<Advice>,
+        r_decompose: EvenBitsConfig<WORD_BITS>,
 
         pow: PowTable<WORD_BITS>,
     ) -> Self {
@@ -54,11 +56,12 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             s_table,
             s_shift,
             a,
-            b_decompose,
+            b,
             c,
             d,
             a_shift,
             a_power,
+            r_decompose,
             pow,
         }
     }
@@ -69,12 +72,13 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         s_shift: Column<Advice>,
 
         a: Column<Advice>,
-        b_decompose: EvenBitsConfig<WORD_BITS>,
+        b: Column<Advice>,
         c: Column<Advice>,
         d: Column<Advice>,
 
         a_shift: Column<Advice>,
         a_power: Column<Advice>,
+        r_decompose: EvenBitsConfig<WORD_BITS>,
 
         pow: PowTable<WORD_BITS>,
     ) -> Self {
@@ -82,21 +86,23 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             s_table,
             s_shift,
             a,
-            b_decompose,
+            b,
             c,
             d,
             a_shift,
             a_power,
+            r_decompose,
             pow,
         } = Self::new(
             s_table,
             s_shift,
             a,
-            b_decompose,
+            b,
             c,
             d,
             a_shift,
             a_power,
+            r_decompose,
             pow,
         );
 
@@ -106,20 +112,20 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
 
             let s_table = meta.query_selector(s_table);
-            let s_shift = meta.query_advice(s_shift, Rotation::cur());
+            let s_shift = meta.query_advice(dbg!(s_shift), Rotation::cur());
 
-            let a = meta.query_advice(a, Rotation::cur());
+            let a = meta.query_advice(dbg!(a), Rotation::cur());
 
-            let b_o = meta.query_advice(b_decompose.odd, Rotation::cur());
-            let b_e = meta.query_advice(b_decompose.even, Rotation::cur());
+            let r_o = meta.query_advice(dbg!(r_decompose.odd), Rotation::cur());
+            let r_e = meta.query_advice(dbg!(r_decompose.even), Rotation::cur());
 
-            let a_shift = meta.query_advice(a_shift, Rotation::cur());
+            let a_shift = meta.query_advice(dbg!(a_shift), Rotation::cur());
 
             Constraints::with_selector(
                 s_table * s_shift,
                 [
                     a_shift.clone() * (a_shift.clone() - one.clone()),
-                    (one - a_shift.clone()) * (word_bits - a - (two * b_o) - b_e),
+                    (one - a_shift.clone()) * (word_bits - a - (two * r_o) - r_e),
                 ],
             )
         });
@@ -178,7 +184,12 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             )
             .unwrap();
 
-        self.b_decompose.assign_decompose(region, word, offset);
+        let shift_bits = F::from(shift_bits as u64);
+        let r = F::from(WORD_BITS as u64) - shift_bits;
+        region
+            .assign_advice(|| "r", self.r_decompose.word, offset, || Value::known(r))
+            .unwrap();
+        self.r_decompose.assign_decompose(region, r, offset);
     }
 }
 
@@ -243,11 +254,17 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
         meta.enable_equality(flag);
 
         let even_bits = EvenBitsTable::new(meta);
-        let b_decompose =
-            EvenBitsConfig::configure(meta, b, &[s_shift], s_table, even_bits);
 
         let a_shift = meta.advice_column();
         let a_power = meta.advice_column();
+        let r_decompose = meta.advice_column();
+        let r_decompose = EvenBitsConfig::configure(
+            meta,
+            r_decompose,
+            &[s_shift],
+            s_table,
+            even_bits,
+        );
 
         let pow = PowTable::new(meta);
 
@@ -257,11 +274,12 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                 s_table,
                 s_shift,
                 a,
-                b_decompose,
+                b,
                 c,
                 d,
                 a_shift,
                 a_power,
+                r_decompose,
                 pow,
             ),
             instance,
@@ -273,7 +291,12 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
-        config.0.b_decompose.even_bits.alloc_table(&mut layouter).unwrap();
+        config
+            .0
+            .r_decompose
+            .even_bits
+            .alloc_table(&mut layouter)
+            .unwrap();
         layouter
             .assign_region(
                 || "shift",
@@ -305,12 +328,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                             .assign_advice(|| "a", config.0.a, 0, || Value::known(a))
                             .unwrap();
                         region
-                            .assign_advice(
-                                || "b",
-                                config.0.b_decompose.word,
-                                0,
-                                || Value::known(b),
-                            )
+                            .assign_advice(|| "b", config.0.b, 0, || Value::known(b))
                             .unwrap();
 
                         region

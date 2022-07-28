@@ -381,7 +381,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let r_decompose = EvenBitsConfig::configure(
                 &mut meta,
                 flag3_r,
-                &[temp_var_selectors.out.flag3],
+                &[temp_var_selectors.out.flag3, temp_var_selectors.out.shift],
                 exe_len,
                 even_bits,
             );
