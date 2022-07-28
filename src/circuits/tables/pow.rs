@@ -26,36 +26,41 @@ impl<const WORD_BITS: u32> PowTable<WORD_BITS> {
             || "Pow table",
             |mut table| {
                 for i in 0..(WORD_BITS as usize) {
-                    table.assign_cell(
-                        || format!("value {}", i),
-                        self.values,
-                        i,
-                        || Value::known(F::from(i as u64)),
-                    )?;
+                    table
+                        .assign_cell(
+                            || format!("value {}", i),
+                            self.values,
+                            i,
+                            || Value::known(F::from(i as u64)),
+                        )
+                        .unwrap();
 
                     let power = 2u64.pow(i as _) % 2u64.pow(WORD_BITS);
-                    table.assign_cell(
-                        || format!("power {}", power),
-                        self.values,
-                        i,
-                        || Value::known(F::from(power)),
-                    )?;
+                    table
+                        .assign_cell(
+                            || format!("power {}", power),
+                            self.powers,
+                            i,
+                            || Value::known(F::from(power)),
+                        )
+                        .unwrap();
                 }
 
-                table.assign_cell(
-                    || format!("value {}", WORD_BITS),
-                    self.values,
-                    WORD_BITS as _,
-                    || Value::known(F::from(WORD_BITS as u64)),
-                )?;
+                table
+                    .assign_cell(
+                        || format!("value {}", WORD_BITS),
+                        self.values,
+                        WORD_BITS as _,
+                        || Value::known(F::from(WORD_BITS as u64)),
+                    )
+                    .unwrap();
 
                 table.assign_cell(
                     || format!("power {}", 0),
-                    self.values,
+                    self.powers,
                     WORD_BITS as _,
                     || Value::known(F::zero()),
-                )?;
-                Ok(())
+                )
             },
         )
     }

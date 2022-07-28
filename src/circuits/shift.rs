@@ -130,30 +130,30 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             )
         });
 
-        // let _ = meta.cs().lookup(|meta| {
-        //     let one = Expression::Constant(F::one());
-        //     let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
+        let _ = meta.cs().lookup(|meta| {
+            let one = Expression::Constant(F::one());
+            let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
 
-        //     // let s_table = meta.query_selector(s_table);
-        //     let s_shift = meta.query_advice(s_shift, Rotation::cur());
-        //     let a = meta.query_advice(a, Rotation::cur());
+            // let s_table = meta.query_selector(s_table);
+            let s_shift = meta.query_advice(s_shift, Rotation::cur());
+            let a = meta.query_advice(a, Rotation::cur());
 
-        //     let a_shift = meta.query_advice(a_shift, Rotation::cur());
-        //     let a_power = meta.query_advice(a_power, Rotation::cur());
+            let a_shift = meta.query_advice(a_shift, Rotation::cur());
+            let a_power = meta.query_advice(a_power, Rotation::cur());
 
-        //     vec![
-        //         (
-        //             s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
-        //             pow.values,
-        //         ),
-        //         // (a_power, pow.powers),
-        //         // When s_shift not set, we lookup (value: 0, value: 1)
-        //         (
-        //             (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
-        //             pow.powers,
-        //         ),
-        //     ]
-        // });
+            vec![
+                (
+                    s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
+                    pow.values,
+                ),
+                // (a_power, pow.powers),
+                // When s_shift not set, we lookup (value: 0, value: 1)
+                (
+                    (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
+                    pow.powers,
+                ),
+            ]
+        });
 
         conf
     }
@@ -291,6 +291,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
         config: Self::Config,
         mut layouter: impl Layouter<Fp>,
     ) -> Result<(), Error> {
+        config.0.pow.alloc_table(&mut layouter).unwrap();
         config
             .0
             .r_decompose
