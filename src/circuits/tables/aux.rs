@@ -713,8 +713,9 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     let rj = steps[i].regs[rj];
                     let ri = truncate::<WORD_BITS>((rj.0 << a.0) as _);
 
-                    shift::non_det_d::<WORD_BITS>(a.into(), rj.into(), ri.into()).try_into().unwrap()
-                },
+                    // shift::non_det_d::<WORD_BITS>(a.into(), rj.into(), ri.into()).try_into().unwrap()
+                    todo!()
+                }
                 _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionD::Zero => 0,

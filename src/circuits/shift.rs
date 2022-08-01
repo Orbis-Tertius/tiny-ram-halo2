@@ -132,7 +132,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                 [
                     a_shift.clone() * (a_shift.clone() - one.clone()),
                     (one - a_shift.clone()) * (word_bits - a - (two * r_o) - r_e),
-                    // a_power * b - d - max * c,
+                    a_power * b - d - max * c,
                 ],
             )
         });
@@ -150,15 +150,13 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
 
             vec![
                 (
-                    // s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
-                    Expression::Constant(F::from(8)),
+                    s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
                     pow.values,
                 ),
                 // (a_power, pow.powers),
                 // When s_shift not set, we lookup (value: 0, value: 1)
                 (
-                    // (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
-                    Expression::Constant(F::from(0)),
+                    (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
                     pow.powers,
                 ),
             ]
@@ -183,12 +181,17 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             )
             .unwrap();
 
+        let a_power = if shift_bits == WORD_BITS as _ {
+            0
+        } else {
+            2u64.pow(shift_bits as _)
+        };
         region
             .assign_advice(
                 || "a_power",
                 self.a_power,
                 offset,
-                || Value::known(F::from(dbg!(2u64.pow(shift_bits as _)))),
+                || Value::known(F::from(dbg!(a_power))),
             )
             .unwrap();
 
@@ -204,13 +207,9 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
     }
 }
 
-pub fn non_det_d<const WORD_BITS: u32>(a: u128, b: u128, c: u128) -> u128 {
-    let d = if a > WORD_BITS.into() {
-        0
-    } else {
-        2u128.pow(dbg!(a) as _) * dbg!(b) - (2u128.pow(WORD_BITS) * dbg!(c))
-    };
-    dbg!(d)
+pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, c: u128) -> F {
+    F::from(2u64.pow(dbg!(a) as _)) * F::from_u128(dbg!(b))
+        - (F::from(2u64.pow(WORD_BITS)) * F::from_u128(dbg!(c)))
 }
 
 // pub const fn non_det_c(a: Word, b: Word, d: Word) -> Word {
@@ -340,8 +339,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                     // If a or b is None then we will see the error early.
                     if self.word.is_some() || self.shift_bits.is_some() {
                         // load private
-                        let max = Fp::from(WORD_BITS as u64);
-                        let a = max - self.shift_bits.unwrap();
+                        let a = self.shift_bits.unwrap();
                         let b = self.word.unwrap();
 
                         config.0.assign_shift(
@@ -360,18 +358,20 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                         {
                             let a = a.get_lower_128();
                             let b = b.get_lower_128();
-                            let c = truncate::<WORD_BITS>(b >> a).0.into();
+                            let c = dbg!(truncate::<WORD_BITS>(
+                                b >> self.shift_bits.unwrap().get_lower_128()
+                            )
+                            .0
+                            .into());
                             region
                                 .assign_advice(
                                     || "d",
                                     config.0.d,
                                     0,
                                     || {
-                                        Value::known(Fp::from_u128(non_det_d::<
-                                            WORD_BITS,
-                                        >(
-                                            a, b, c
-                                        )))
+                                        Value::known(non_det_d::<WORD_BITS, Fp>(
+                                            a, b, c,
+                                        ))
                                     },
                                 )
                                 .unwrap();
@@ -486,7 +486,6 @@ mod tests {
 
     proptest! {
         // The case number was picked to run all tests in about 60 seconds on my machine.
-        // TODO use `plonk::BatchVerifier` to speed up tests.
         #![proptest_config(ProptestConfig {
           cases: 10, .. ProptestConfig::default()
         })]

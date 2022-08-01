@@ -525,8 +525,6 @@ mod tests {
         }
 
         proptest! {
-            // The case number was picked to run all tests in about 60 seconds on my machine.
-            // TODO use `plonk::BatchVerifier` to speed up tests.
             #![proptest_config(ProptestConfig {
               cases: 10, .. ProptestConfig::default()
             })]
@@ -684,8 +682,6 @@ mod tests {
         }
 
         proptest! {
-            // The case number was picked to run all tests in about 60 seconds on my machine.
-            // TODO use `plonk::BatchVerifier` to speed up tests.
             #![proptest_config(ProptestConfig {
               cases: 10, .. ProptestConfig::default()
             })]
@@ -841,8 +837,6 @@ mod tests {
         }
 
         proptest! {
-            // The case number was picked to run all tests in about 60 seconds on my machine.
-            // TODO use `plonk::BatchVerifier` to speed up tests.
             #![proptest_config(ProptestConfig {
               cases: 10, .. ProptestConfig::default()
             })]
