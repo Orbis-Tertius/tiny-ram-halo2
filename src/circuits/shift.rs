@@ -428,7 +428,7 @@ mod tests {
               -> (u64, u64, u64, bool) {
         let out = word >> s_bits;
 
-        (s_bits as _, word, out, false)
+        dbg!((s_bits as _, word, out, false))
       }
     }
 
@@ -439,8 +439,8 @@ mod tests {
             .map(|(a, b, c, flag)| {
                 (
                     ShiftCircuit {
-                        word: Some(a.into()),
-                        shift_bits: Some(b.into()),
+                        word: Some(b.into()),
+                        shift_bits: Some(a.into()),
                     },
                     vec![vec![c.into(), flag.into()]],
                 )
@@ -452,7 +452,7 @@ mod tests {
         /// proptest does not support testing const generics.
         #[test]
         fn all_8_bit_words_mock_prover_test((a, b, c, flag) in valid_values(8)) {
-            mock_prover_test::<8>(a, b, c, flag)
+            mock_prover_test::<8>(dbg!(a), dbg!(b), dbg!(c), flag)
         }
     }
 
