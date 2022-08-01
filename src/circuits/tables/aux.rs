@@ -5,7 +5,7 @@ use halo2_proofs::{arithmetic::FieldExt, plonk};
 
 use crate::{
     assign::{NewColumn, PushRow},
-    circuits::changed::UnChangedSelectors,
+    circuits::{changed::UnChangedSelectors, shift},
     trace::{self, *},
 };
 
@@ -684,6 +684,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     trace::truncate::<WORD_BITS>(r >> WORD_BITS).0
                 }
                 Instruction::Cmpe(Cmpe { ri, a, .. }) => todo!(),
+                Instruction::Shl(_) => todo!(),
                 _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionC::Zero => 0,
@@ -707,6 +708,13 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     let (_upper, lower, _flag) = SMulh::eval::<WORD_BITS>(a, rj);
                     lower.0
                 }
+                Instruction::Shr(Shr { ri, rj, a }) => {
+                    let a = a.get(&steps[i].regs);
+                    let rj = steps[i].regs[rj];
+                    let ri = truncate::<WORD_BITS>((rj.0 << a.0) as _);
+
+                    shift::non_det_d::<WORD_BITS>(a.into(), rj.into(), ri.into()).try_into().unwrap()
+                },
                 _ => panic!("Unhandled non-deterministic advice"),
             },
             SelectionD::Zero => 0,

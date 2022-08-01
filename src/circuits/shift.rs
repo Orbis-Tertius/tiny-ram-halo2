@@ -1,4 +1,5 @@
 use crate::assign::ConstraintSys;
+use crate::trace::truncate;
 use halo2_proofs::circuit::{Region, Value};
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::plonk::Constraints;
@@ -110,22 +111,28 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             let one = Expression::Constant(F::one());
             let two = Expression::Constant(F::from(2));
             let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
+            let max = Expression::Constant(F::from(2u64.pow(WORD_BITS)));
 
             let s_table = meta.query_selector(s_table);
             let s_shift = meta.query_advice(dbg!(s_shift), Rotation::cur());
 
             let a = meta.query_advice(dbg!(a), Rotation::cur());
+            let b = meta.query_advice(dbg!(b), Rotation::cur());
+            let c = meta.query_advice(dbg!(c), Rotation::cur());
+            let d = meta.query_advice(dbg!(d), Rotation::cur());
 
             let r_o = meta.query_advice(dbg!(r_decompose.odd), Rotation::cur());
             let r_e = meta.query_advice(dbg!(r_decompose.even), Rotation::cur());
 
             let a_shift = meta.query_advice(dbg!(a_shift), Rotation::cur());
+            let a_power = meta.query_advice(dbg!(a_power), Rotation::cur());
 
             Constraints::with_selector(
                 s_table * s_shift,
                 [
                     a_shift.clone() * (a_shift.clone() - one.clone()),
                     (one - a_shift.clone()) * (word_bits - a - (two * r_o) - r_e),
+                    // a_power * b - d - max * c,
                 ],
             )
         });
@@ -143,13 +150,15 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
 
             vec![
                 (
-                    s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
+                    // s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
+                    Expression::Constant(F::from(8)),
                     pow.values,
                 ),
                 // (a_power, pow.powers),
                 // When s_shift not set, we lookup (value: 0, value: 1)
                 (
-                    (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
+                    // (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
+                    Expression::Constant(F::from(0)),
                     pow.powers,
                 ),
             ]
@@ -161,8 +170,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
     pub fn assign_shift<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        word: F,
-        shift_bits: usize,
+        shift_bits: u64,
         offset: usize,
     ) {
         let a_shift = WORD_BITS < shift_bits as _;
@@ -171,7 +179,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                 || "a_shift",
                 self.a_shift,
                 offset,
-                || Value::known(F::from(a_shift)),
+                || Value::known(F::from(dbg!(a_shift))),
             )
             .unwrap();
 
@@ -180,18 +188,35 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                 || "a_power",
                 self.a_power,
                 offset,
-                || Value::known(F::from(2u64.pow(shift_bits as _))),
+                || Value::known(F::from(dbg!(2u64.pow(shift_bits as _)))),
             )
             .unwrap();
 
-        let shift_bits = F::from(shift_bits as u64);
-        let r = F::from(WORD_BITS as u64) - shift_bits;
+        let r = if shift_bits > WORD_BITS as _ {
+            F::zero()
+        } else {
+            F::from(WORD_BITS as u64 - shift_bits)
+        };
         region
             .assign_advice(|| "r", self.r_decompose.word, offset, || Value::known(r))
             .unwrap();
         self.r_decompose.assign_decompose(region, r, offset);
     }
 }
+
+pub fn non_det_d<const WORD_BITS: u32>(a: u128, b: u128, c: u128) -> u128 {
+    let d = if a > WORD_BITS.into() {
+        0
+    } else {
+        2u128.pow(dbg!(a) as _) * dbg!(b) - (2u128.pow(WORD_BITS) * dbg!(c))
+    };
+    dbg!(d)
+}
+
+// pub const fn non_det_c(a: Word, b: Word, d: Word) -> Word {
+//     // TODO w -> 0
+//     Word(2u32.pow(a.0) * b.0 - (2 * c.0))
+// }
 
 impl<F: FieldExt, const WORD_BITS: u32> ShiftChip<F, WORD_BITS> {
     pub fn construct(config: <Self as Chip<F>>::Config) -> Self {
@@ -315,13 +340,13 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                     // If a or b is None then we will see the error early.
                     if self.word.is_some() || self.shift_bits.is_some() {
                         // load private
-                        let a = self.shift_bits.unwrap();
+                        let max = Fp::from(WORD_BITS as u64);
+                        let a = max - self.shift_bits.unwrap();
                         let b = self.word.unwrap();
 
                         config.0.assign_shift(
                             &mut region,
-                            b,
-                            a.get_lower_128() as _,
+                            a.get_lower_128().try_into().unwrap(),
                             0,
                         );
 
@@ -332,14 +357,25 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                             .assign_advice(|| "b", config.0.b, 0, || Value::known(b))
                             .unwrap();
 
-                        region
-                            .assign_advice(
-                                || "d",
-                                config.0.d,
-                                0,
-                                || Value::known(Fp::zero()),
-                            )
-                            .unwrap();
+                        {
+                            let a = a.get_lower_128();
+                            let b = b.get_lower_128();
+                            let c = truncate::<WORD_BITS>(b >> a).0.into();
+                            region
+                                .assign_advice(
+                                    || "d",
+                                    config.0.d,
+                                    0,
+                                    || {
+                                        Value::known(Fp::from_u128(non_det_d::<
+                                            WORD_BITS,
+                                        >(
+                                            a, b, c
+                                        )))
+                                    },
+                                )
+                                .unwrap();
+                        }
 
                         // region
                         //     .assign_advice(
@@ -392,7 +428,7 @@ mod tests {
               -> (u64, u64, u64, bool) {
         let out = word >> s_bits;
 
-        (word, s_bits as _, out, false)
+        (s_bits as _, word, out, false)
       }
     }
 
@@ -470,8 +506,8 @@ mod tests {
     fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64, c: u64, flag: bool) {
         let k = 1 + WORD_BITS / 2;
         let circuit: ShiftCircuit<Fp, WORD_BITS> = ShiftCircuit {
-            word: Some(Fp::from(a)),
-            shift_bits: Some(Fp::from(b)),
+            word: Some(Fp::from(b)),
+            shift_bits: Some(Fp::from(a)),
         };
 
         let prover =

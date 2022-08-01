@@ -2,23 +2,13 @@ use std::{marker::PhantomData, ops::Deref};
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Chip, Layouter, Region, Value},
+    circuit::{Chip, Layouter, Region, Value},
     plonk::{
         Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn,
         VirtualCells,
     },
     poly::Rotation,
 };
-
-pub trait EvenBitsLookup<F: FieldExt>: Chip<F> {
-    type Word;
-
-    fn decompose<'a>(
-        &self,
-        layouter: Region<'a, F>,
-        c: Self::Word,
-    ) -> Result<(EvenBits<Self::Word>, OddBits<Self::Word>), Error>;
-}
 
 /// A newtype of a field element containing only bits
 /// that were in the even position of the decomposed element.
@@ -180,6 +170,8 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
         offset: usize,
     ) -> (EvenBits<F>, OddBits<F>) {
         let (e, o) = decompose(word);
+        dbg!(e.0.get_lower_128());
+        dbg!(o.0.get_lower_128());
         let _ = region
             .assign_advice(|| "even bits", self.even, offset, || Value::known(e.0))
             .map(EvenBits)
@@ -240,31 +232,6 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for EvenBitsChip<F, WORD_BITS> {
 
     fn loaded(&self) -> &Self::Loaded {
         &()
-    }
-}
-
-impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F>
-    for EvenBitsChip<F, WORD_BITS>
-{
-    type Word = AssignedCell<F, F>;
-
-    fn decompose(
-        &self,
-        mut region: Region<'_, F>,
-        c: Self::Word,
-    ) -> Result<(EvenBits<Self::Word>, OddBits<Self::Word>), Error> {
-        let config = self.config();
-
-        let o_eo = c.value().cloned().map(decompose);
-        let e_cell = region
-            .assign_advice(|| "even bits", config.even, 0, || o_eo.map(|eo| *eo.0))
-            .map(EvenBits)?;
-
-        let o_cell = region
-            .assign_advice(|| "odd bits", config.odd, 0, || o_eo.map(|eo| *eo.1))
-            .map(OddBits)?;
-
-        Ok((e_cell, o_cell))
     }
 }
 

@@ -875,23 +875,13 @@ impl Program {
                 Instruction::Shl(Shl { ri, rj, a }) => {
                     let a = a.get(&regs).0;
                     let rj = regs[rj].0;
-                    regs[ri] = Word(
-                        rj << truncate::<WORD_BITS>(
-                            std::cmp::min(WORD_BITS, a) as u128
-                        )
-                        .0,
-                    );
+                    regs[ri] = truncate::<WORD_BITS>((rj << a) as _);
                     flag = (rj & (2u32.pow(WORD_BITS - 1))) != 0;
                 }
                 Instruction::Shr(Shr { ri, rj, a }) => {
                     let a = a.get(&regs).0;
                     let rj = regs[rj].0;
-                    regs[ri] = Word(
-                        rj << truncate::<WORD_BITS>(
-                            !std::cmp::min(WORD_BITS, a) as u128
-                        )
-                        .0,
-                    );
+                    regs[ri] = Word(rj >> a);
                     flag = (rj & 1) != 0
                 }
                 Instruction::Cmpe(Cmpe { ri, a }) => flag = a.get(&regs) == regs[ri],
