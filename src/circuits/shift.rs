@@ -114,18 +114,18 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             let max = Expression::Constant(F::from(2u64.pow(WORD_BITS)));
 
             let s_table = meta.query_selector(s_table);
-            let s_shift = meta.query_advice(dbg!(s_shift), Rotation::cur());
+            let s_shift = meta.query_advice(s_shift, Rotation::cur());
 
-            let a = meta.query_advice(dbg!(a), Rotation::cur());
-            let b = meta.query_advice(dbg!(b), Rotation::cur());
-            let c = meta.query_advice(dbg!(c), Rotation::cur());
-            let d = meta.query_advice(dbg!(d), Rotation::cur());
+            let a = meta.query_advice(a, Rotation::cur());
+            let b = meta.query_advice(b, Rotation::cur());
+            let c = meta.query_advice(c, Rotation::cur());
+            let d = meta.query_advice(d, Rotation::cur());
 
-            let r_o = meta.query_advice(dbg!(r_decompose.odd), Rotation::cur());
-            let r_e = meta.query_advice(dbg!(r_decompose.even), Rotation::cur());
+            let r_o = meta.query_advice(r_decompose.odd, Rotation::cur());
+            let r_e = meta.query_advice(r_decompose.even, Rotation::cur());
 
-            let a_shift = meta.query_advice(dbg!(a_shift), Rotation::cur());
-            let a_power = meta.query_advice(dbg!(a_power), Rotation::cur());
+            let a_shift = meta.query_advice(a_shift, Rotation::cur());
+            let a_power = meta.query_advice(a_power, Rotation::cur());
 
             Constraints::with_selector(
                 s_table * s_shift,
@@ -177,7 +177,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                 || "a_shift",
                 self.a_shift,
                 offset,
-                || Value::known(F::from(dbg!(a_shift))),
+                || Value::known(F::from(a_shift)),
             )
             .unwrap();
 
@@ -191,7 +191,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                 || "a_power",
                 self.a_power,
                 offset,
-                || Value::known(F::from(dbg!(a_power))),
+                || Value::known(F::from(a_power)),
             )
             .unwrap();
 
@@ -208,14 +208,17 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
 }
 
 pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, c: u128) -> F {
-    F::from(2u64.pow(dbg!(a) as _)) * F::from_u128(dbg!(b))
-        - (F::from(2u64.pow(WORD_BITS)) * F::from_u128(dbg!(c)))
+    F::from(2u64.pow((a) as _)) * F::from_u128(b)
+        - (F::from(2u64.pow(WORD_BITS)) * F::from_u128(c))
 }
 
-// pub const fn non_det_c(a: Word, b: Word, d: Word) -> Word {
-//     // TODO w -> 0
-//     Word(2u32.pow(a.0) * b.0 - (2 * c.0))
-// }
+pub fn non_det_c<const WORD_BITS: u32, F: FieldExt>(a: i128, b: i128, d: i128) -> F {
+    F::from_u128(
+        ((2i128.pow(a as _) * b - d) / 2i128.pow(WORD_BITS))
+            .try_into()
+            .unwrap(),
+    )
+}
 
 impl<F: FieldExt, const WORD_BITS: u32> ShiftChip<F, WORD_BITS> {
     pub fn construct(config: <Self as Chip<F>>::Config) -> Self {
@@ -247,12 +250,14 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for ShiftChip<F, WORD_BITS> {
 }
 
 #[derive(Default, Debug, Clone, Copy)]
-pub struct ShiftCircuit<F: FieldExt, const WORD_BITS: u32> {
+pub struct ShiftCircuit<F: FieldExt, const WORD_BITS: u32, const SHIFT_RIGHT: bool> {
     pub word: Option<F>,
     pub shift_bits: Option<F>,
 }
 
-impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
+impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
+    for ShiftCircuit<Fp, WORD_BITS, SHIFT_RIGHT>
+{
     type Config = (ShiftConfig<WORD_BITS>, Column<Instance>);
     type FloorPlanner = SimpleFloorPlanner;
 
@@ -272,6 +277,7 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
         let c = meta.advice_column();
         meta.enable_equality(c);
         let d = meta.advice_column();
+        meta.enable_equality(d);
 
         // Overflow flag
         let flag = meta.advice_column();
@@ -358,54 +364,60 @@ impl<const WORD_BITS: u32> Circuit<Fp> for ShiftCircuit<Fp, WORD_BITS> {
                         {
                             let a = a.get_lower_128();
                             let b = b.get_lower_128();
-                            let c = dbg!(truncate::<WORD_BITS>(
-                                b >> self.shift_bits.unwrap().get_lower_128()
-                            )
-                            .0
-                            .into());
-                            region
-                                .assign_advice(
-                                    || "d",
-                                    config.0.d,
-                                    0,
-                                    || {
-                                        Value::known(non_det_d::<WORD_BITS, Fp>(
-                                            a, b, c,
-                                        ))
-                                    },
-                                )
-                                .unwrap();
-                        }
 
-                        // region
-                        //     .assign_advice(
-                        //         || "fill for the mock prover",
-                        //         config.0.flag,
-                        //         0,
-                        //         || Value::known(Fp::zero()),
-                        //     )
-                        //     .unwrap();
+                            if SHIFT_RIGHT {
+                                let c = truncate::<WORD_BITS>(
+                                    b >> self.shift_bits.unwrap().get_lower_128(),
+                                )
+                                .0
+                                .into();
+                                region
+                                    .assign_advice(
+                                        || "d",
+                                        config.0.d,
+                                        0,
+                                        || {
+                                            Value::known(non_det_d::<WORD_BITS, Fp>(
+                                                a, b, c,
+                                            ))
+                                        },
+                                    )
+                                    .unwrap();
+                            } else {
+                                // shift left
+
+                                let d: u128 = truncate::<WORD_BITS>(
+                                    b << self.shift_bits.unwrap().get_lower_128(),
+                                )
+                                .0
+                                .into();
+                                region
+                                    .assign_advice(
+                                        || "c",
+                                        config.0.c,
+                                        0,
+                                        || {
+                                            Value::known(non_det_c::<WORD_BITS, Fp>(
+                                                a.try_into().unwrap(),
+                                                b.try_into().unwrap(),
+                                                d.try_into().unwrap(),
+                                            ))
+                                        },
+                                    )
+                                    .unwrap();
+                            }
+                        }
                     }
 
                     region
                         .assign_advice_from_instance(
-                            || "res/c",
+                            || "res",
                             config.1,
                             0,
-                            config.0.c,
+                            if SHIFT_RIGHT { config.0.c } else { config.0.d },
                             0,
                         )
                         .unwrap();
-
-                    // region
-                    //     .assign_advice_from_instance(
-                    //         || "flag",
-                    //         config.1,
-                    //         1,
-                    //         config.0.flag,
-                    //         1,
-                    //     )
-                    //     .unwrap();
 
                     Ok(())
                 },
@@ -423,18 +435,22 @@ mod tests {
     use proptest::prelude::*;
 
     prop_compose! {
-      fn valid_values(word_bits: u32)
+      fn valid_values(word_bits: u32, right_shift: bool)
               (word in 0..2u64.pow(word_bits), s_bits in 0..(word_bits))
               -> (u64, u64, u64, bool) {
-        let out = word >> s_bits;
+        let out = if right_shift {
+            word >> s_bits
+        } else {
+            (word << s_bits) & ((2u64.pow(word_bits)) - 1)
+        };
 
-        dbg!((s_bits as _, word, out, false))
+        (s_bits as _, word, out, false)
       }
     }
 
-    fn shift<const WORD_BITS: u32>(
+    fn shift<const WORD_BITS: u32, const SHIFT_RIGHT: bool>(
         v: Vec<(u64, u64, u64, bool)>,
-    ) -> Vec<(ShiftCircuit<Fp, WORD_BITS>, Vec<Vec<Fp>>)> {
+    ) -> Vec<(ShiftCircuit<Fp, WORD_BITS, SHIFT_RIGHT>, Vec<Vec<Fp>>)> {
         v.into_iter()
             .map(|(a, b, c, flag)| {
                 (
@@ -448,63 +464,127 @@ mod tests {
             .collect()
     }
 
-    proptest! {
-        /// proptest does not support testing const generics.
-        #[test]
-        fn all_8_bit_words_mock_prover_test((a, b, c, flag) in valid_values(8)) {
-            mock_prover_test::<8>(dbg!(a), dbg!(b), dbg!(c), flag)
+    mod left {
+        use super::*;
+        proptest! {
+            /// proptest does not support testing const generics.
+            #[test]
+            fn all_8_bit_words_mock_prover_test((a, b, c, flag) in valid_values(8, false)) {
+                mock_prover_test::<8, false>(a, b, c, flag)
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig {
+              cases: 20, .. ProptestConfig::default()
+            })]
+
+            #[test]
+            fn all_8_bit_words_test(s in prop::collection::vec(valid_values(8, false), 10)) {
+                gen_proofs_and_verify::<8, _>(shift::<8, false>(s))
+            }
+
+            #[test]
+            fn all_16_bit_words_mock_prover_test((a, b, c, flag) in valid_values(16, false)) {
+                mock_prover_test::<16, false>(a, b, c, flag)
+            }
+
+            #[test]
+            fn all_16_bit_words_test(s in prop::collection::vec(valid_values(16, false), 10)) {
+                gen_proofs_and_verify::<16, _>(shift::<16, false>(s))
+            }
+
+            #[test]
+            fn all_8_bit_words_test_bad_proof(word in 0..2u64.pow(8), shift_bits in 0..8u64, c in 0..2u64.pow(8), flag: bool) {
+                prop_assume!((c != word >> shift_bits));
+                let circuit = ShiftCircuit::<Fp, 8, false> {word: Some(word.into()), shift_bits: Some(shift_bits.into())};
+                gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into(), flag.into()])
+            }
+        }
+
+        proptest! {
+            // The case number was picked to run all tests in about 60 seconds on my machine.
+            #![proptest_config(ProptestConfig {
+              cases: 10, .. ProptestConfig::default()
+            })]
+
+            #[test]
+            fn all_24_bit_words_mock_prover_test((a, b, c, flag) in valid_values(24, false)) {
+                mock_prover_test::<24, false>(a, b, c, flag)
+            }
+
+            #[test]
+            fn all_24_bit_words_test(s in prop::collection::vec(valid_values(24, false), 10)) {
+                gen_proofs_and_verify::<24, _>(shift::<24, false>(s))
+            }
         }
     }
 
-    proptest! {
-        #![proptest_config(ProptestConfig {
-          cases: 20, .. ProptestConfig::default()
-        })]
-
-        #[test]
-        fn all_8_bit_words_test(s in prop::collection::vec(valid_values(8), 10)) {
-            gen_proofs_and_verify::<8, _>(shift::<8>(s))
+    mod right {
+        use super::*;
+        proptest! {
+            /// proptest does not support testing const generics.
+            #[test]
+            fn all_8_bit_words_mock_prover_test((a, b, c, flag) in valid_values(8, true)) {
+                mock_prover_test::<8, true>(a, b, c, flag)
+            }
         }
 
-        #[test]
-        fn all_16_bit_words_mock_prover_test((a, b, c, flag) in valid_values(16)) {
-            mock_prover_test::<16>(a, b, c, flag)
+        proptest! {
+            #![proptest_config(ProptestConfig {
+              cases: 20, .. ProptestConfig::default()
+            })]
+
+            #[test]
+            fn all_8_bit_words_test(s in prop::collection::vec(valid_values(8, true), 10)) {
+                gen_proofs_and_verify::<8, _>(shift::<8, true>(s))
+            }
+
+            #[test]
+            fn all_16_bit_words_mock_prover_test((a, b, c, flag) in valid_values(16, true)) {
+                mock_prover_test::<16, true>(a, b, c, flag)
+            }
+
+            #[test]
+            fn all_16_bit_words_test(s in prop::collection::vec(valid_values(16, true), 10)) {
+                gen_proofs_and_verify::<16, _>(shift::<16, true>(s))
+            }
+
+            #[test]
+            fn all_8_bit_words_test_bad_proof(word in 0..2u64.pow(8), shift_bits in 0..8u64, c in 0..2u64.pow(8), flag: bool) {
+                prop_assume!((c != word >> shift_bits));
+                let circuit = ShiftCircuit::<Fp, 8, true> {word: Some(word.into()), shift_bits: Some(shift_bits.into())};
+                gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into(), flag.into()])
+            }
         }
 
-        #[test]
-        fn all_16_bit_words_test(s in prop::collection::vec(valid_values(16), 10)) {
-            gen_proofs_and_verify::<16, _>(shift::<16>(s))
-        }
+        proptest! {
+            // The case number was picked to run all tests in about 60 seconds on my machine.
+            #![proptest_config(ProptestConfig {
+              cases: 10, .. ProptestConfig::default()
+            })]
 
-        #[test]
-        fn all_8_bit_words_test_bad_proof(word in 0..2u64.pow(8), shift_bits in 0..8u64, c in 0..2u64.pow(8), flag: bool) {
-            prop_assume!((c != word >> shift_bits));
-            let circuit = ShiftCircuit::<Fp, 8> {word: Some(word.into()), shift_bits: Some(shift_bits.into())};
-            gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into(), flag.into()])
-        }
-    }
+            #[test]
+            fn all_24_bit_words_mock_prover_test((a, b, c, flag) in valid_values(24, true)) {
+                mock_prover_test::<24, true>(a, b, c, flag)
+            }
 
-    proptest! {
-        // The case number was picked to run all tests in about 60 seconds on my machine.
-        #![proptest_config(ProptestConfig {
-          cases: 10, .. ProptestConfig::default()
-        })]
-
-        #[test]
-        fn all_24_bit_words_mock_prover_test((a, b, c, flag) in valid_values(24)) {
-            mock_prover_test::<24>(a, b, c, flag)
-        }
-
-        #[test]
-        fn all_24_bit_words_test(s in prop::collection::vec(valid_values(24), 10)) {
-            gen_proofs_and_verify::<24, _>(shift::<24>(s))
+            #[test]
+            fn all_24_bit_words_test(s in prop::collection::vec(valid_values(24, true), 10)) {
+                gen_proofs_and_verify::<24, _>(shift::<24, true>(s))
+            }
         }
     }
 
     // It's used in the proptests
-    fn mock_prover_test<const WORD_BITS: u32>(a: u64, b: u64, c: u64, flag: bool) {
+    fn mock_prover_test<const WORD_BITS: u32, const SHIFT_RIGHT: bool>(
+        a: u64,
+        b: u64,
+        c: u64,
+        flag: bool,
+    ) {
         let k = 1 + WORD_BITS / 2;
-        let circuit: ShiftCircuit<Fp, WORD_BITS> = ShiftCircuit {
+        let circuit: ShiftCircuit<Fp, WORD_BITS, SHIFT_RIGHT> = ShiftCircuit {
             word: Some(Fp::from(b)),
             shift_bits: Some(Fp::from(a)),
         };

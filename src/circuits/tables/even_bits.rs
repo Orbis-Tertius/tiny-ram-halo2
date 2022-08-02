@@ -170,8 +170,6 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
         offset: usize,
     ) -> (EvenBits<F>, OddBits<F>) {
         let (e, o) = decompose(word);
-        dbg!(e.0.get_lower_128());
-        dbg!(o.0.get_lower_128());
         let _ = region
             .assign_advice(|| "even bits", self.even, offset, || Value::known(e.0))
             .map(EvenBits)
