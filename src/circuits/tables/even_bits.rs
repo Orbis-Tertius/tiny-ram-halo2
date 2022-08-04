@@ -2,23 +2,13 @@ use std::{marker::PhantomData, ops::Deref};
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Chip, Layouter, Region, Value},
+    circuit::{Chip, Layouter, Region, Value},
     plonk::{
         Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn,
         VirtualCells,
     },
     poly::Rotation,
 };
-
-pub trait EvenBitsLookup<F: FieldExt>: Chip<F> {
-    type Word;
-
-    fn decompose<'a>(
-        &self,
-        layouter: Region<'a, F>,
-        c: Self::Word,
-    ) -> Result<(EvenBits<Self::Word>, OddBits<Self::Word>), Error>;
-}
 
 /// A newtype of a field element containing only bits
 /// that were in the even position of the decomposed element.
@@ -243,31 +233,6 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for EvenBitsChip<F, WORD_BITS> {
     }
 }
 
-impl<F: FieldExt, const WORD_BITS: u32> EvenBitsLookup<F>
-    for EvenBitsChip<F, WORD_BITS>
-{
-    type Word = AssignedCell<F, F>;
-
-    fn decompose(
-        &self,
-        mut region: Region<'_, F>,
-        c: Self::Word,
-    ) -> Result<(EvenBits<Self::Word>, OddBits<Self::Word>), Error> {
-        let config = self.config();
-
-        let o_eo = c.value().cloned().map(decompose);
-        let e_cell = region
-            .assign_advice(|| "even bits", config.even, 0, || o_eo.map(|eo| *eo.0))
-            .map(EvenBits)?;
-
-        let o_cell = region
-            .assign_advice(|| "odd bits", config.odd, 0, || o_eo.map(|eo| *eo.1))
-            .map(OddBits)?;
-
-        Ok((e_cell, o_cell))
-    }
-}
-
 fn decompose<F: FieldExt>(word: F) -> (EvenBits<F>, OddBits<F>) {
     assert!(word <= F::from_u128(u128::MAX));
 
@@ -413,7 +378,6 @@ mod mem_test {
 
     proptest! {
         // The case number was picked to run all tests in about 60 seconds on my machine.
-        // TODO use `plonk::BatchVerifier` to speed up tests.
         #![proptest_config(ProptestConfig {
           cases: 20, .. ProptestConfig::default()
         })]

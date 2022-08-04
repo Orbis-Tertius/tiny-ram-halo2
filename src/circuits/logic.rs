@@ -470,15 +470,6 @@ mod tests {
             .collect()
     }
 
-    proptest! {
-        #[test]
-        fn fp_u128_test(n in 0..u128::MAX) {
-            let a = Fp::from_u128(n);
-            let b = a.get_lower_128();
-            assert_eq!(b, n)
-        }
-    }
-
     mod and {
         use super::*;
 
@@ -534,8 +525,6 @@ mod tests {
         }
 
         proptest! {
-            // The case number was picked to run all tests in about 60 seconds on my machine.
-            // TODO use `plonk::BatchVerifier` to speed up tests.
             #![proptest_config(ProptestConfig {
               cases: 10, .. ProptestConfig::default()
             })]
@@ -650,13 +639,6 @@ mod tests {
         }
 
         proptest! {
-            #[test]
-            fn fp_u128_test(n in 0..u128::MAX) {
-                let a = Fp::from_u128(n);
-                let b = a.get_lower_128();
-                assert_eq!(b, n)
-            }
-
             /// proptest does not support testing const generics.
             #[test]
             fn all_8_bit_words_mock_prover_test(a in 0..2u64.pow(8), b in 0..2u64.pow(8)) {
@@ -700,8 +682,6 @@ mod tests {
         }
 
         proptest! {
-            // The case number was picked to run all tests in about 60 seconds on my machine.
-            // TODO use `plonk::BatchVerifier` to speed up tests.
             #![proptest_config(ProptestConfig {
               cases: 10, .. ProptestConfig::default()
             })]
@@ -857,8 +837,6 @@ mod tests {
         }
 
         proptest! {
-            // The case number was picked to run all tests in about 60 seconds on my machine.
-            // TODO use `plonk::BatchVerifier` to speed up tests.
             #![proptest_config(ProptestConfig {
               cases: 10, .. ProptestConfig::default()
             })]

@@ -13,11 +13,11 @@ use crate::{
     assign::{NewColumn, TrackColumns},
     circuits::{
         flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
-        logic::LogicConfig, modulo::ModConfig, prod::ProdConfig, sprod::SProdConfig,
-        ssum::SSumConfig, sum::SumConfig,
+        logic::LogicConfig, modulo::ModConfig, prod::ProdConfig, shift::ShiftConfig,
+        sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
     leak_once,
-    trace::{Instruction, RegName, Registers, Trace},
+    trace::{Instruction, RegName, Registers, Shl, Shr, Trace},
 };
 
 use super::{
@@ -26,6 +26,7 @@ use super::{
         TempVarSelectorsRow,
     },
     even_bits::{EvenBitsConfig, EvenBitsTable},
+    pow::PowTable,
     signed::SignedConfig,
 };
 
@@ -75,12 +76,10 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // v_init: Column<Advice>,
     // s: Column<Advice>,
     // l: Column<Advice>,
-
-    // Auxiliary entries used by mutually exclusive constraints.
-    even_bits: EvenBitsTable<WORD_BITS>,
     logic: LogicConfig<WORD_BITS>,
     ssum: SSumConfig<WORD_BITS>,
     sprod: SProdConfig<WORD_BITS>,
+    shift: ShiftConfig<WORD_BITS>,
 
     /// An implemention detail, used to default fill columns.
     intermediate: Vec<Column<Advice>>,
@@ -90,6 +89,10 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     flag2: Flag2Config<WORD_BITS>,
     flag3: Flag3Config<WORD_BITS>,
     // flag4: Flag4Config,
+
+    // Auxiliary entries used by mutually exclusive constraints.
+    even_bits: EvenBitsTable<WORD_BITS>,
+    pow_table: PowTable<WORD_BITS>,
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
@@ -356,6 +359,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let exe_len = meta.complex_selector();
 
             let even_bits = EvenBitsTable::new(meta);
+            let pow_table = PowTable::new(meta);
 
             let mut meta = TrackColumns::new(meta);
 
@@ -381,7 +385,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let r_decompose = EvenBitsConfig::configure(
                 &mut meta,
                 flag3_r,
-                &[temp_var_selectors.out.flag3],
+                &[temp_var_selectors.out.flag3, temp_var_selectors.out.shift],
                 exe_len,
                 even_bits,
             );
@@ -513,6 +517,22 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 d,
             );
 
+            let a_shift = meta.new_column();
+            let a_power = meta.new_column();
+            let shift = ShiftConfig::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.shift,
+                a,
+                b,
+                c,
+                d,
+                a_shift,
+                a_power,
+                r_decompose,
+                pow_table,
+            );
+
             ExeConfig {
                 table_max_len,
                 exe_len,
@@ -530,9 +550,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 d,
                 temp_var_selectors,
                 even_bits,
+                pow_table,
                 logic,
                 ssum,
                 sprod,
+                shift,
                 intermediate: meta.1,
                 flag2,
                 flag3,
@@ -651,9 +673,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             d,
             temp_var_selectors,
             even_bits: _,
+            pow_table: _,
             logic,
             ssum,
             sprod,
+            shift,
             intermediate: _,
             flag2,
             flag3,
@@ -777,8 +801,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                             let ta = F::from_u128(ta as u128);
                             let tb = F::from_u128(tb as u128);
-                            let tc = F::from_u128(tc as u128);
-                            let td = F::from_u128(td as u128);
 
                             region
                                 .assign_advice(
@@ -859,6 +881,16 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     logic.assign_xor(&mut region, ta, tb, offset);
                                 }
 
+                                Instruction::Shl(Shl { a, .. })
+                                | Instruction::Shr(Shr { a, .. }) => {
+                                    let shift_bits = a.get(&step.regs);
+                                    shift.assign_shift(
+                                        &mut region,
+                                        shift_bits.0,
+                                        offset,
+                                    )
+                                }
+
                                 // TODO
                                 _ => {}
                             }
@@ -933,6 +965,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         exe_chip
             .config
             .even_bits
+            .alloc_table(&mut layouter)
+            .unwrap();
+
+        exe_chip
+            .config
+            .pow_table
             .alloc_table(&mut layouter)
             .unwrap();
 
@@ -1194,6 +1232,34 @@ mod tests {
         )
     }
 
+    fn mov_shr_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Shr(Shr {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_shl_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Shl(Shl {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
     // #[test]
     // fn circuit_layout_test() {
     //     const WORD_BITS: u32 = 8;
@@ -1342,6 +1408,16 @@ mod tests {
         #[test]
         fn mov_smullh_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
             mock_prover_test::<8, 8>(mov_smullh_answer(a, b))
+        }
+
+        #[test]
+        fn mov_shl_answer_mock_prover(a in 0..8u32, b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_shl_answer(Word(a), Word(b)))
+        }
+
+        #[test]
+        fn mov_shr_answer_mock_prover(a in 0..8u32, b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_shr_answer(Word(a), Word(b)))
         }
     }
 }
