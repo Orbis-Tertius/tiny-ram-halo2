@@ -168,7 +168,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
     pub fn assign_shift<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        shift_bits: u64,
+        shift_bits: u32,
         offset: usize,
     ) {
         let a_shift = WORD_BITS < shift_bits as _;
@@ -198,7 +198,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         let r = if shift_bits > WORD_BITS as _ {
             F::zero()
         } else {
-            F::from(WORD_BITS as u64 - shift_bits)
+            F::from((WORD_BITS - shift_bits) as u64)
         };
         region
             .assign_advice(|| "r", self.r_decompose.word, offset, || Value::known(r))

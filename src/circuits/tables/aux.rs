@@ -571,7 +571,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
         &self,
         steps: &[Step<REG_COUNT>],
         i: usize,
-    ) -> (u32, u32, u32, u32) {
+    ) -> (u32, u32, F, F) {
         let pc = || steps[i].pc.0;
         let pc_n = || steps[i + 1].pc.0;
         let reg = |r| steps[i].regs[r].0;
@@ -673,54 +673,61 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
         };
 
         let tc = match self.c {
-            SelectionC::Reg(r) => reg(r),
-            SelectionC::RegN(r) => reg_n(r),
-            SelectionC::A(ior) => a(ior),
+            SelectionC::Reg(r) => F::from(reg(r) as u64),
+            SelectionC::RegN(r) => F::from(reg_n(r) as u64),
+            SelectionC::A(ior) => F::from(a(ior) as u64),
             SelectionC::NonDet => match steps[i].instruction {
                 Instruction::Mull(Mull { rj, a, .. }) => {
                     let r = steps[i].regs[rj].0 as u128
                         * a.get(&steps[i].regs).0 as u128;
                     // c is the upper word, and d is the lower word of multiplication (page 28)
-                    trace::truncate::<WORD_BITS>(r >> WORD_BITS).0
+                    F::from(trace::truncate::<WORD_BITS>(r >> WORD_BITS).0 as u64)
                 }
                 Instruction::Cmpe(Cmpe { ri, a, .. }) => todo!(),
-                Instruction::Shl(_) => todo!(),
+                Instruction::Shl(Shl { rj, a, ri }) => {
+                    let a = a.get(&steps[i].regs).0;
+                    let b = steps[i].regs[rj].0;
+                    let d = truncate::<WORD_BITS>((b as u128) << (a as u128));
+                    assert_eq!(d, steps[i + 1].regs[ri]);
+
+                    shift::non_det_c::<WORD_BITS, F>(a.into(), b.into(), d.0.into())
+                }
                 _ => panic!("Unhandled non-deterministic advice"),
             },
-            SelectionC::Zero => 0,
+            SelectionC::Zero => F::zero(),
         };
 
         let td = match self.d {
-            SelectionD::PcPlusOne => pc() + 1,
-            SelectionD::Reg(r) => reg(r),
-            SelectionD::RegN(r) => reg_n(r),
-            SelectionD::A(ior) => a(ior),
+            SelectionD::PcPlusOne => F::from((pc() + 1) as u64),
+            SelectionD::Reg(r) => F::from(reg(r) as u64),
+            SelectionD::RegN(r) => F::from(reg_n(r) as u64),
+            SelectionD::A(ior) => F::from(a(ior) as u64),
             SelectionD::NonDet => match steps[i].instruction {
                 Instruction::UMulh(UMulh { rj, a, .. }) => {
                     let r = steps[i].regs[rj].0 as u128
                         * a.get(&steps[i].regs).0 as u128;
-                    trace::truncate::<WORD_BITS>(r).0
+                    F::from(trace::truncate::<WORD_BITS>(r).0 as u64)
                 }
                 Instruction::SMulh(SMulh { rj, a, .. }) => {
                     let a = a.get(&steps[i].regs);
                     let rj = steps[i].regs[rj];
 
                     let (_upper, lower, _flag) = SMulh::eval::<WORD_BITS>(a, rj);
-                    lower.0
+                    F::from(lower.0 as u64)
                 }
                 Instruction::Shr(Shr { ri, rj, a }) => {
                     let a = a.get(&steps[i].regs);
-                    let rj = steps[i].regs[rj];
-                    let ri = truncate::<WORD_BITS>((rj.0 << a.0) as _);
+                    let b = steps[i].regs[rj];
+                    let c = b.0 >> a.0;
+                    assert_eq!(c, steps[i + 1].regs[ri].0);
 
-                    // shift::non_det_d::<WORD_BITS>(a.into(), rj.into(), ri.into()).try_into().unwrap()
-                    todo!()
+                    shift::non_det_d::<WORD_BITS, F>(a.into(), b.into(), c.into())
                 }
                 _ => panic!("Unhandled non-deterministic advice"),
             },
-            SelectionD::Zero => 0,
-            SelectionD::One => 1,
-            SelectionD::Unset => 0,
+            SelectionD::Zero => F::zero(),
+            SelectionD::One => F::one(),
+            SelectionD::Unset => F::zero(),
         };
         (ta, tb, tc, td)
     }
