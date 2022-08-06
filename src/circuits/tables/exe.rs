@@ -13,8 +13,8 @@ use crate::{
     assign::{NewColumn, TrackColumns},
     circuits::{
         flag1::Flag1Config, flag2::Flag2Config, flag3::Flag3Config,
-        logic::LogicConfig, modulo::ModConfig, prod::ProdConfig, shift::ShiftConfig,
-        sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
+        flag4::Flag4Config, logic::LogicConfig, modulo::ModConfig, prod::ProdConfig,
+        shift::ShiftConfig, sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
     leak_once,
     trace::{Instruction, RegName, Registers, Shl, Shr, Trace},
@@ -88,7 +88,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // flag1: Flag1Config,
     flag2: Flag2Config<WORD_BITS>,
     flag3: Flag3Config<WORD_BITS>,
-    // flag4: Flag4Config,
+    flag4: Flag4Config<WORD_BITS>,
 
     // Auxiliary entries used by mutually exclusive constraints.
     even_bits: EvenBitsTable<WORD_BITS>,
@@ -533,6 +533,18 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 pow_table,
             );
 
+            let lsb_b = meta.new_column();
+            let b_flag = meta.new_column();
+            let flag4 = Flag4Config::<WORD_BITS>::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors.out.flag4,
+                signed_b,
+                lsb_b,
+                b_flag,
+                flag,
+            );
+
             ExeConfig {
                 table_max_len,
                 exe_len,
@@ -558,6 +570,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 intermediate: meta.1,
                 flag2,
                 flag3,
+                flag4,
             }
         };
 
@@ -681,6 +694,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             intermediate: _,
             flag2,
             flag3,
+            flag4,
         } = self.config;
 
         layouter
@@ -881,14 +895,34 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     logic.assign_xor(&mut region, ta, tb, offset);
                                 }
 
-                                Instruction::Shl(Shl { a, .. })
-                                | Instruction::Shr(Shr { a, .. }) => {
+                                Instruction::Shl(Shl { a, .. }) => {
                                     let shift_bits = a.get(&step.regs);
                                     shift.assign_shift(
                                         &mut region,
                                         shift_bits.0,
                                         offset,
-                                    )
+                                    );
+                                    flag4.assign_flag4(
+                                        &mut region,
+                                        tb.get_lower_128().try_into().unwrap(),
+                                        true,
+                                        offset,
+                                    );
+                                }
+                                Instruction::Shr(Shr { a, .. }) => {
+                                    let shift_bits = a.get(&step.regs);
+                                    shift.assign_shift(
+                                        &mut region,
+                                        shift_bits.0,
+                                        offset,
+                                    );
+
+                                    flag4.assign_flag4(
+                                        &mut region,
+                                        tb.get_lower_128().try_into().unwrap(),
+                                        false,
+                                        offset,
+                                    );
                                 }
 
                                 // TODO
