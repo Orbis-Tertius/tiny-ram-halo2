@@ -2,6 +2,7 @@ pub mod changed;
 pub mod flag1;
 pub mod flag2;
 pub mod flag3;
+pub mod flag4;
 pub mod logic;
 pub mod modulo;
 pub mod prod;
