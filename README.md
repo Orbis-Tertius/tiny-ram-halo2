@@ -19,3 +19,8 @@ cargo test
 ### To run test's exactly as our CI does:
 
 `nix build ./#ci`
+
+
+## References
+
+The TinyRAM execution constraints are based on [Nearly Linear-Time Zero-Knowledge Proofs for Correct Program Execution](https://eprint.iacr.org/2018/380).
