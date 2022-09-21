@@ -657,7 +657,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     }) as u32
                 }
                 Instruction::Cmpge(Cmpge { ri, a: ior }) => {
-                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let ta = steps[i].regs[ri].0 as u64;
                     let tc = a(ior) as u64;
                     // td is 1
 
@@ -683,7 +683,11 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     // c is the upper word, and d is the lower word of multiplication (page 28)
                     F::from(trace::truncate::<WORD_BITS>(r >> WORD_BITS).0 as u64)
                 }
-                Instruction::Cmpe(Cmpe { ri, a, .. }) => todo!(),
+                Instruction::Cmpe(Cmpe { ri, a, .. }) => {
+                    let c = steps[i].regs[ri].0 ^ a.get(&steps[i].regs).0;
+                    // c is the bit wise XOR of ri, and a.
+                    F::from(c as u64)
+                }
                 Instruction::Shl(Shl { rj, a, ri }) => {
                     let a = a.get(&steps[i].regs).0;
                     let b = steps[i].regs[rj].0;

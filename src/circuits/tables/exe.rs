@@ -867,7 +867,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 Instruction::And(_) => {
                                     logic.assign_and(&mut region, ta, tb, offset);
                                 }
-                                Instruction::Xor(_) => {
+                                Instruction::Xor(_) | Instruction::Cmpe(_) => {
                                     logic.assign_xor(&mut region, ta, tb, offset);
                                 }
                                 Instruction::Or(_) => {
@@ -1138,6 +1138,19 @@ mod tests {
             Instruction::Sub(Sub {
                 ri: RegName(1),
                 rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_cmpe_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpe(Cmpe {
+                ri: RegName(0),
                 a: ImmediateOrRegName::Immediate(Word(a)),
             }),
             b,
@@ -1417,6 +1430,11 @@ mod tests {
         #[test]
         fn mov_udiv_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
             mock_prover_test::<8, 8>(mov_udiv_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpe_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpe_answer(a, b))
         }
 
         #[test]

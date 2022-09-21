@@ -6,7 +6,7 @@
   outputs = { self, nixpkgs, dream2nix, fenix }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      channelVersion = "1.62.0";
+      channelVersion = "1.63.0";
       toolchain = fenix.packages.x86_64-linux.toolchainOf {
         channel = channelVersion;
         sha256 = "sha256-AoqjoLifz8XrZWP7piauFfWCvhzPMLKxfv57h6Ng1oM=";

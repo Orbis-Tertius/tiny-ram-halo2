@@ -40,10 +40,12 @@ pub struct LogicConfig<const WORD_BITS: u32> {
 
     /// Stores `lhs.word & rhs.word`
     /// Constrained by: composing eo and oo
+    /// `ExeConfig.c`
     res: Column<Advice>,
 }
 
 impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         even_bits: EvenBitsTable<WORD_BITS>,

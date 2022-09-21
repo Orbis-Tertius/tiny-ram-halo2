@@ -2,12 +2,13 @@
 #![allow(dead_code)]
 use crate::assign::ConstraintSys;
 use halo2_proofs::circuit::{Region, Value};
-use halo2_proofs::plonk::Constraints;
+use halo2_proofs::plonk::{Constraints, Expression};
 use halo2_proofs::{
     arithmetic::FieldExt,
     plonk::{Advice, Column, Selector},
     poly::Rotation,
 };
+use rand_core::OsRng;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Flag2Config<const WORD_BITS: u32> {
@@ -40,8 +41,12 @@ impl<const WORD_BITS: u32> Flag2Config<WORD_BITS> {
 
             let c = meta.query_advice(c, Rotation::cur());
             let flag_n = meta.query_advice(flag, Rotation::next());
+            let a_flag = meta.query_advice(a_flag, Rotation::cur());
 
-            Constraints::with_selector(s_table * s_flag2, [flag_n * c])
+            Constraints::with_selector(
+                s_table * s_flag2,
+                [(flag_n + c) * a_flag - Expression::Constant(F::one())],
+            )
         });
 
         Self {
@@ -60,7 +65,9 @@ impl<const WORD_BITS: u32> Flag2Config<WORD_BITS> {
         flag_next: F,
         offset: usize,
     ) {
-        let a_flag = (c + flag_next).invert().unwrap_or(F::zero());
+        // a_flag can be anything when `c + flag_next = 0`.
+        // TODO replace with seedable Rng to add back determinism.
+        let a_flag = (c + flag_next).invert().unwrap_or(F::random(OsRng));
         region
             .assign_advice(|| "a_flag", self.a_flag, offset, || Value::known(a_flag))
             .unwrap();
