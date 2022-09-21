@@ -52,6 +52,7 @@ impl<const WORD_BITS: u32> SumConfig<WORD_BITS> {
         }
     }
 
+    #[allow(clippy::complexity)]
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,

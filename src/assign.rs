@@ -95,7 +95,7 @@ impl<'r, F: FieldExt>
     }
 }
 
-impl<'r, F> PushRow<F, PseudoColumn> for PseudoMeta<F> {
+impl<F> PushRow<F, PseudoColumn> for PseudoMeta<F> {
     type AssignedRef = (PseudoColumn, usize);
     fn push_cell(
         &mut self,

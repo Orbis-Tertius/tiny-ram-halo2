@@ -15,7 +15,7 @@ lazy_static! {
 pub fn leak_once<S: Into<String> + AsRef<str> + Ord>(s: S) -> &'static str {
     let l = {
         let leaked = LEAKED.read().unwrap();
-        leaked.get(s.as_ref()).map(|s| *s)
+        leaked.get(s.as_ref()).copied()
     };
 
     if let Some(l) = l {

@@ -82,7 +82,7 @@ impl<const REG_COUNT: usize> UnChangedSelectors<REG_COUNT, Column<Advice>> {
             let flag = meta.query_advice(flag, Rotation::cur());
 
             let mut constraints =
-                vec![ch_pc * (pc + one.clone() - pc_n), ch_flag * (flag - flag_n)];
+                vec![ch_pc * (pc + one - pc_n), ch_flag * (flag - flag_n)];
 
             constraints.extend(self.regs.0.iter().zip(regs.0.iter()).map(
                 |(ch_r, r)| {

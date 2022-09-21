@@ -623,7 +623,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     }
                 }
                 Instruction::Cmpa(Cmpa { ri, a: ior }) => {
-                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let ta = steps[i].regs[ri].0 as u64;
                     let tc = a(ior) as u64;
                     // td is 0
 
@@ -635,7 +635,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     }) as u32
                 }
                 Instruction::Cmpg(Cmpg { ri, a: ior }) => {
-                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let ta = steps[i].regs[ri].0 as u64;
                     let tc = a(ior) as u64;
                     // td is 0
 
@@ -646,7 +646,7 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     }) as u32
                 }
                 Instruction::Cmpae(Cmpae { ri, a: ior }) => {
-                    let ta = *&steps[i].regs[ri].0 as u64;
+                    let ta = steps[i].regs[ri].0 as u64;
                     let tc = a(ior) as u64;
                     // td is 1
 

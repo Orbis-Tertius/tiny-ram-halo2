@@ -67,7 +67,7 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
         let s_signed = |meta: &mut VirtualCells<F>| -> Expression<F> {
             let s_table = meta.query_selector(s_table);
             s_signed
-                .into_iter()
+                .iter()
                 .map(|c| meta.query_advice(*c, Rotation::cur()))
                 .fold(None, |e, c| {
                     e.map(|e| Some(e + c.clone())).unwrap_or(Some(c))
@@ -85,7 +85,7 @@ impl<const WORD_BITS: u32> SignedConfig<WORD_BITS> {
             let msb = meta.query_advice(msb, Rotation::cur());
             let word_sigma = meta.query_advice(word_sigma, Rotation::cur());
             let word_sigma =
-                -msb.clone() * two.clone() * word_sigma.clone() + word_sigma.clone();
+                -msb.clone() * two.clone() * word_sigma.clone() + word_sigma;
 
             let word = meta.query_advice(word.word, Rotation::cur());
             let check_sign = meta.query_advice(check_sign.word, Rotation::cur());

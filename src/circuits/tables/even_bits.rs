@@ -127,7 +127,7 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
         let s_even_bits = |meta: &mut VirtualCells<F>| -> Expression<F> {
             let s_table = meta.query_selector(s_table);
             s_even_bits
-                .into_iter()
+                .iter()
                 .map(|c| meta.query_advice(*c, Rotation::cur()))
                 .fold(None, |e, c| {
                     e.map(|e| Some(e + c.clone())).unwrap_or(Some(c))

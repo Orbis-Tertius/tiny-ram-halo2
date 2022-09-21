@@ -97,6 +97,7 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
         }
     }
 
+    #[allow(clippy::complexity)]
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         even_bits: EvenBitsTable<WORD_BITS>,
@@ -229,10 +230,10 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
         self.assign_logic(region, lhs, rhs, offset);
 
         let res = F::from_u128(lhs.get_lower_128() & rhs.get_lower_128());
-        let res = region
+
+        region
             .assign_advice(|| "res", self.res, offset, || Value::known(res))
-            .unwrap();
-        res
+            .unwrap()
     }
 
     pub fn assign_xor<F: FieldExt>(
@@ -245,10 +246,10 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
         self.assign_logic(region, lhs, rhs, offset);
 
         let res = F::from_u128(lhs.get_lower_128() ^ rhs.get_lower_128());
-        let res = region
+
+        region
             .assign_advice(|| "res", self.res, offset, || Value::known(res))
-            .unwrap();
-        res
+            .unwrap()
     }
 
     pub fn assign_or<F: FieldExt>(
@@ -261,10 +262,10 @@ impl<const WORD_BITS: u32> LogicConfig<WORD_BITS> {
         self.assign_logic(region, lhs, rhs, offset);
 
         let res = F::from_u128(lhs.get_lower_128() | rhs.get_lower_128());
-        let res = region
+
+        region
             .assign_advice(|| "res", self.res, offset, || Value::known(res))
-            .unwrap();
-        res
+            .unwrap()
     }
 }
 

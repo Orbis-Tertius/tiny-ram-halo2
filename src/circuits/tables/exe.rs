@@ -1375,7 +1375,7 @@ mod tests {
 
     prop_compose! {
       fn signed_word(word_bits: u32)
-         (a in -2i32.pow(word_bits - 1)..2i32.pow(word_bits - 1) - 1)
+         (a in -(2i32.pow(word_bits - 1))..2i32.pow(word_bits - 1) - 1)
       -> Word {
           Word::try_from_signed(a, word_bits).unwrap()
       }

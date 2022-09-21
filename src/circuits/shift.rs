@@ -38,6 +38,7 @@ pub struct ShiftConfig<const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
+    #[allow(clippy::complexity)]
     pub fn new(
         s_table: Selector,
         s_shift: Column<Advice>,
@@ -67,6 +68,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         }
     }
 
+    #[allow(clippy::complexity)]
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,
@@ -131,7 +133,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                 s_table * s_shift,
                 [
                     a_shift.clone() * (a_shift.clone() - one.clone()),
-                    (one - a_shift.clone()) * (word_bits - a - (two * r_o) - r_e),
+                    (one - a_shift) * (word_bits - a - (two * r_o) - r_e),
                     a_power * b - d - max * c,
                 ],
             )

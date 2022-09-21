@@ -11,7 +11,7 @@ pub struct Word(pub u32);
 
 impl Word {
     pub const fn try_from_signed(s: i32, word_bits: u32) -> Option<Word> {
-        let min = -2i32.pow(word_bits - 1);
+        let min = -(2i32.pow(word_bits - 1));
         if s > -min - 1 || s < min {
             None
         } else if s >= 0 {
@@ -33,23 +33,23 @@ impl Word {
 
 proptest! {
     #[test]
-    fn from_signed_test(s in -2i32.pow(8 - 1)..2i32.pow(8 - 1) - 1) {
-        assert_eq!(Word::try_from_signed(s.into(), 8), Some(Word(s as i8 as u8 as u32)));
+    fn from_signed_test(s in -(2i32.pow(8 - 1))..2i32.pow(8 - 1) - 1) {
+        assert_eq!(Word::try_from_signed(s, 8), Some(Word(s as i8 as u8 as u32)));
     }
 
     #[test]
     fn from_signed_test_too_high(s in 2i32.pow(8 - 1)..i32::MAX) {
-        assert_eq!(Word::try_from_signed(s.into(), 8), None);
+        assert_eq!(Word::try_from_signed(s, 8), None);
     }
 
     #[test]
-    fn from_signed_test_too_low(s in i32::MIN..(-2i32.pow(8 - 1)) - 1) {
-        assert_eq!(Word::try_from_signed(s.into(), 8), None);
+    fn from_signed_test_too_low(s in i32::MIN..(-(2i32.pow(8 - 1))) - 1) {
+        assert_eq!(Word::try_from_signed(s, 8), None);
     }
 
     #[test]
-    fn to_signed_test(s in -2i32.pow(8 - 1)..2i32.pow(8 - 1) - 1) {
-        let w = Word::try_from_signed(s.into(), 8);
+    fn to_signed_test(s in -(2i32.pow(8 - 1))..2i32.pow(8 - 1) - 1) {
+        let w = Word::try_from_signed(s, 8);
         assert_eq!(w, Some(Word(s as i8 as u8 as u32)));
         assert_eq!(w.unwrap().into_signed(8), s);
     }
@@ -482,7 +482,7 @@ impl Display for Instruction {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum ImmediateOrRegName {
     Immediate(Word),
     RegName(RegName),
@@ -648,7 +648,7 @@ impl SMulh {
         let upper = truncate::<WORD_BITS>((f >> WORD_BITS) as u128);
 
         let m = 2i128.pow(WORD_BITS - 1);
-        let flag = if f >= m || f < -m { true } else { false };
+        let flag = f >= m || f < -m;
 
         assert_eq!(f.is_negative(), upper.into_signed(WORD_BITS).is_negative());
         (upper, lower, flag)

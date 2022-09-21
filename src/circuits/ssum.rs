@@ -47,6 +47,7 @@ impl<const WORD_BITS: u32> SSumConfig<WORD_BITS> {
         }
     }
 
+    #[allow(clippy::complexity)]
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         s_table: Selector,
@@ -83,7 +84,7 @@ impl<const WORD_BITS: u32> SSumConfig<WORD_BITS> {
 
             let c_sigma = meta.query_advice(c.word_sigma, Rotation::cur());
             let c_msb = meta.query_advice(c.msb, Rotation::cur());
-            let c_sigma = -c_msb * two.clone() * c_sigma.clone() + c_sigma;
+            let c_sigma = -c_msb * two * c_sigma.clone() + c_sigma;
 
             let d = meta.query_advice(d, Rotation::cur());
             let flag_n = meta.query_advice(flag, Rotation::next());
