@@ -9,7 +9,7 @@
       channelVersion = "1.63.0";
       toolchain = fenix.packages.x86_64-linux.toolchainOf {
         channel = channelVersion;
-        sha256 = "sha256-AoqjoLifz8XrZWP7piauFfWCvhzPMLKxfv57h6Ng1oM=";
+        sha256 = "sha256-KXx+ID0y4mg2B3LHp7IyaiMrdexF6octADnAtFIOjrY=";
       };
     in
     (dream2nix.lib.makeFlakeOutputs {
