@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 78db42c35c9ed078bba063c0b7e25f60dcec802329ba867330dba4eabbeeef9b # shrinks to (a, b, c, flag) = (0, 0, 0, false)
+cc 2f51aa4ffb68105c6da23d15edc6d1087fb3968df9988da6ab7d043c2e3d428b # shrinks to (a, b, c, flag) = (0, 0, 0, false)
+cc e55680f7edca5d159131d8c2ca248385f020ce2ebe56f1c41661afbc8ee79fc2 # shrinks to (a, b, c, flag) = (0, 0, 0, false)
+cc 82afe58e1c31e41a823db29a8ce77a19b4f12048452b938e718ff1ffc0b64abd # shrinks to word = 0, shift_bits = 0, c = 1, flag = false
+cc 74829795f0c5ce3a12faae607f6af0e051703191c8774a2ca1d667a2ab41f342 # shrinks to s = [(0, 0, 0, false), (0, 0, 0, false), (0, 0, 0, false), (0, 0, 0, false), (0, 0, 0, false), (0, 0, 0, false), (0, 0, 0, false), (0, 0, 0, false), (0, 2, 0, false), (233, 0, 233, false)]
+cc bba27c766958498118ed6bbd297bc6be12f0f9a250337c7ad164c31aa734cee5

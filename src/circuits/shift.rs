@@ -498,7 +498,7 @@ mod tests {
 
             #[test]
             fn all_8_bit_words_test_bad_proof(word in 0..2u64.pow(8), shift_bits in 0..8u64, c in 0..2u64.pow(8), flag: bool) {
-                prop_assume!((c != word >> shift_bits));
+                prop_assume!((c != word << shift_bits));
                 let circuit = ShiftCircuit::<Fp, 8, false> {word: Some(word.into()), shift_bits: Some(shift_bits.into())};
                 gen_proofs_and_verify_should_fail::<8, _>(circuit, vec![c.into(), flag.into()])
             }
