@@ -87,7 +87,7 @@ pub struct EvenBitsConfig<const WORD_BITS: u32> {
 }
 
 impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
-    pub fn new<F: FieldExt>(
+    fn new<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
         _s_even_bits: &[Column<Advice>],
@@ -106,6 +106,12 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
         }
     }
 
+    // `s_even_bits` contains the advice selectors that enable this decomposition.
+    // The sum of `s_even_bits` must be 0 or 1.
+    //
+    // `s_table` denotes the maxium extent of the Exe table.
+    //
+    // The decomposition is enforced when `s_table * (s_even_bits[0] + s_even_bits[1] + ..)` is 1.
     pub fn configure<F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         word: Column<Advice>,
@@ -130,6 +136,7 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
                 .iter()
                 .map(|c| meta.query_advice(*c, Rotation::cur()))
                 .fold(None, |e, c| {
+                    // We sum advice selectors, since only one of them can be enabled on each row.
                     e.map(|e| Some(e + c.clone())).unwrap_or(Some(c))
                 })
                 .map(|e| s_table.clone() * (e))
