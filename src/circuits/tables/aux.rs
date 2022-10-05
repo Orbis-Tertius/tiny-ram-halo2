@@ -725,7 +725,11 @@ impl<const REG_COUNT: usize> TempVarSelectorsRow<REG_COUNT> {
                     let c = b.0 >> a.0;
                     assert_eq!(c, steps[i + 1].regs[ri].0);
 
-                    dbg!(shift::non_det_d::<WORD_BITS, F>(a.into(), b.into(), c.into()))
+                    dbg!(shift::non_det_d::<WORD_BITS, F>(
+                        a.into(),
+                        b.into(),
+                        c.into()
+                    ))
                 }
                 _ => panic!("Unhandled non-deterministic advice"),
             },
