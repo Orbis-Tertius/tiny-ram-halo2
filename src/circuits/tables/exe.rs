@@ -358,7 +358,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let mut meta = TrackColumns::new(meta);
 
-            let temp_vars = TempVars::configure(&mut meta, exe_len, temp_var_selectors, even_bits);
+            let temp_vars = TempVars::configure(
+                &mut meta,
+                exe_len,
+                temp_var_selectors,
+                even_bits,
+            );
 
             Flag1Config::<WORD_BITS>::configure(
                 &mut meta,
@@ -591,9 +596,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             config.reg_next_gate(meta, reg_next, config.temp_vars.a.word, "a");
             config.immediate_gate(meta, a, config.temp_vars.a.word, "a");
             config.vaddr_gate(meta, v_addr, config.temp_vars.a.word, "a");
-
-            // TODO use a lookup to check non_det is a valid word.
-            // UDiv does not check temp_var_a which is assigned non_det.
         }
 
         {
@@ -615,10 +617,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             config.reg_next_gate(meta, reg_next, config.temp_vars.b.word, "b");
             config.immediate_gate(meta, a, config.temp_vars.b.word, "b");
             config.max_word_gate(meta, max_word, config.temp_vars.b.word, "b");
-
-            // TODO use a lookup to check non_det is a valid word.
-            // UMod, Cmpa, Cmpae, Cmpg, Cmpge all use non_det b,
-            // and none of them check it's a valid word.
         }
 
         {
@@ -634,9 +632,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             config.reg_next_gate(meta, reg_next, config.temp_vars.c.word, "c");
             config.immediate_gate(meta, a, config.temp_vars.c.word, "c");
             config.zero_gate(meta, zero, config.temp_vars.c.word, "c");
-
-            // TODO use a lookup to check non_det is a valid word.
-            // Mull, and Shl use non_det c, neither checks c is a valid word.
         }
 
         {
@@ -656,9 +651,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             config.immediate_gate(meta, a, config.temp_vars.d.word, "d");
             config.zero_gate(meta, zero, config.temp_vars.d.word, "d");
             config.one_gate(meta, one, config.temp_vars.d.word, "d");
-
-            // TODO use a lookup to check non_det is a valid word.
-            // Cmpe, Shr, UMulh, SMulh use non_det d, none check if d is a valid word.
         }
         config
     }
