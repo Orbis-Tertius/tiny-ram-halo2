@@ -1,3 +1,5 @@
+mod temp_vars;
+
 use std::marker::PhantomData;
 
 use halo2_proofs::{
@@ -19,6 +21,8 @@ use crate::{
     leak_once,
     trace::{Instruction, RegName, Registers, Shl, Shr, Trace},
 };
+
+use self::temp_vars::TempVars;
 
 use super::{
     aux::{
@@ -59,11 +63,8 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     reg: Registers<REG_COUNT, Column<Advice>>,
     flag: Column<Advice>,
 
-    // Temporary variables
-    a: Column<Advice>,
-    b: Column<Advice>,
-    c: Column<Advice>,
-    d: Column<Advice>,
+    /// Temporary variables a, b, c, d, and their even_bits decompositions.
+    temp_vars: TempVars<WORD_BITS>,
 
     temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
 
@@ -344,12 +345,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let reg = Registers::init_with(|| meta.advice_column());
 
-            // Temporary vars
-            let a = meta.advice_column();
-            let b = meta.advice_column();
-            let c = meta.advice_column();
-            let d = meta.advice_column();
-
             let flag = meta.advice_column();
             let address = meta.advice_column();
             let value = meta.advice_column();
@@ -363,11 +358,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let mut meta = TrackColumns::new(meta);
 
+            let temp_vars = TempVars::configure(&mut meta, exe_len, temp_var_selectors, even_bits);
+
             Flag1Config::<WORD_BITS>::configure(
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.flag1,
-                c,
+                temp_vars.c.word,
                 flag,
             );
 
@@ -376,7 +373,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.flag2,
-                c,
+                temp_vars.c.word,
                 flag,
                 a_flag,
             );
@@ -393,9 +390,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.flag3,
-                a,
-                b,
-                c,
+                temp_vars.a.word,
+                temp_vars.b.word,
+                temp_vars.c.word,
                 flag,
                 r_decompose,
             );
@@ -404,10 +401,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.sum,
-                a,
-                b,
-                c,
-                d,
+                temp_vars.a.word,
+                temp_vars.b.word,
+                temp_vars.c.word,
+                temp_vars.d.word,
                 flag,
             );
 
@@ -415,16 +412,16 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.mod_,
-                a,
-                b,
-                c,
-                d,
+                temp_vars.a.word,
+                temp_vars.b.word,
+                temp_vars.c.word,
+                temp_vars.d.word,
                 flag,
             );
 
             let a_decomp = EvenBitsConfig::configure(
                 &mut meta,
-                a,
+                temp_vars.a.word,
                 // The even_bits decomposition of `a` should be enabled anytime signed `a` is.
                 &[
                     temp_var_selectors.out.and,
@@ -443,18 +440,18 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 temp_var_selectors.out.xor,
                 temp_var_selectors.out.or,
                 a_decomp,
-                b,
-                c,
+                temp_vars.b.word,
+                temp_vars.c.word,
             );
 
             ProdConfig::<WORD_BITS>::configure(
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.prod,
-                a,
-                b,
-                c,
-                d,
+                temp_vars.a.word,
+                temp_vars.b.word,
+                temp_vars.c.word,
+                temp_vars.d.word,
             );
 
             let signed_a = SignedConfig::configure(
@@ -467,7 +464,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let b_decomp = EvenBitsConfig::configure(
                 &mut meta,
-                b,
+                temp_vars.b.word,
                 &[temp_var_selectors.out.sprod],
                 exe_len,
                 even_bits,
@@ -483,7 +480,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             let c_decomp = EvenBitsConfig::configure(
                 &mut meta,
-                c,
+                temp_vars.c.word,
                 &[temp_var_selectors.out.ssum],
                 exe_len,
                 even_bits,
@@ -501,9 +498,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 exe_len,
                 temp_var_selectors.out.ssum,
                 signed_a,
-                b,
+                temp_vars.b.word,
                 signed_c,
-                d,
+                temp_vars.d.word,
                 flag,
             );
 
@@ -514,7 +511,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 signed_a,
                 signed_b,
                 signed_c,
-                d,
+                temp_vars.d.word,
             );
 
             let a_shift = meta.new_column();
@@ -523,10 +520,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 &mut meta,
                 exe_len,
                 temp_var_selectors.out.shift,
-                a,
-                b,
-                c,
-                d,
+                temp_vars.a.word,
+                temp_vars.b.word,
+                temp_vars.c.word,
+                temp_vars.d.word,
                 a_shift,
                 a_power,
                 r_decompose,
@@ -556,10 +553,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 flag,
                 address,
                 value,
-                a,
-                b,
-                c,
-                d,
+                temp_vars,
                 temp_var_selectors,
                 even_bits,
                 pow_table,
@@ -592,13 +586,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 non_det: _,
             } = config.temp_var_selectors.a;
 
-            config.pc_next_gate(meta, pc_next, config.a, "a");
-            config.reg_gate(meta, reg, config.a, "a");
-            config.reg_next_gate(meta, reg_next, config.a, "a");
-            config.immediate_gate(meta, a, config.a, "a");
-            config.vaddr_gate(meta, v_addr, config.a, "a");
+            config.pc_next_gate(meta, pc_next, config.temp_vars.a.word, "a");
+            config.reg_gate(meta, reg, config.temp_vars.a.word, "a");
+            config.reg_next_gate(meta, reg_next, config.temp_vars.a.word, "a");
+            config.immediate_gate(meta, a, config.temp_vars.a.word, "a");
+            config.vaddr_gate(meta, v_addr, config.temp_vars.a.word, "a");
 
             // TODO use a lookup to check non_det is a valid word.
+            // UDiv does not check temp_var_a which is assigned non_det.
         }
 
         {
@@ -613,15 +608,17 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 max_word,
             } = config.temp_var_selectors.b;
 
-            config.pc_gate(meta, pc, config.b, "b");
-            config.pc_next_gate(meta, pc_next, config.b, "b");
-            config.pc_gate_plus_one(meta, pc_plus_one, config.b, "b");
-            config.reg_gate(meta, reg, config.b, "b");
-            config.reg_next_gate(meta, reg_next, config.b, "b");
-            config.immediate_gate(meta, a, config.b, "b");
-            config.max_word_gate(meta, max_word, config.b, "b");
+            config.pc_gate(meta, pc, config.temp_vars.b.word, "b");
+            config.pc_next_gate(meta, pc_next, config.temp_vars.b.word, "b");
+            config.pc_gate_plus_one(meta, pc_plus_one, config.temp_vars.b.word, "b");
+            config.reg_gate(meta, reg, config.temp_vars.b.word, "b");
+            config.reg_next_gate(meta, reg_next, config.temp_vars.b.word, "b");
+            config.immediate_gate(meta, a, config.temp_vars.b.word, "b");
+            config.max_word_gate(meta, max_word, config.temp_vars.b.word, "b");
 
             // TODO use a lookup to check non_det is a valid word.
+            // UMod, Cmpa, Cmpae, Cmpg, Cmpge all use non_det b,
+            // and none of them check it's a valid word.
         }
 
         {
@@ -633,12 +630,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 zero,
             } = config.temp_var_selectors.c;
 
-            config.reg_gate(meta, reg, config.c, "c");
-            config.reg_next_gate(meta, reg_next, config.c, "c");
-            config.immediate_gate(meta, a, config.c, "c");
-            config.zero_gate(meta, zero, config.c, "c");
+            config.reg_gate(meta, reg, config.temp_vars.c.word, "c");
+            config.reg_next_gate(meta, reg_next, config.temp_vars.c.word, "c");
+            config.immediate_gate(meta, a, config.temp_vars.c.word, "c");
+            config.zero_gate(meta, zero, config.temp_vars.c.word, "c");
 
             // TODO use a lookup to check non_det is a valid word.
+            // Mull, and Shl use non_det c, neither checks c is a valid word.
         }
 
         {
@@ -652,14 +650,15 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 one,
             } = config.temp_var_selectors.d;
 
-            config.pc_gate(meta, pc, config.d, "d");
-            config.reg_gate(meta, reg, config.d, "d");
-            config.reg_next_gate(meta, reg_next, config.d, "d");
-            config.immediate_gate(meta, a, config.d, "d");
-            config.zero_gate(meta, zero, config.d, "d");
-            config.one_gate(meta, one, config.d, "d");
+            config.pc_gate(meta, pc, config.temp_vars.d.word, "d");
+            config.reg_gate(meta, reg, config.temp_vars.d.word, "d");
+            config.reg_next_gate(meta, reg_next, config.temp_vars.d.word, "d");
+            config.immediate_gate(meta, a, config.temp_vars.d.word, "d");
+            config.zero_gate(meta, zero, config.temp_vars.d.word, "d");
+            config.one_gate(meta, one, config.temp_vars.d.word, "d");
 
             // TODO use a lookup to check non_det is a valid word.
+            // Cmpe, Shr, UMulh, SMulh use non_det d, none check if d is a valid word.
         }
         config
     }
@@ -680,10 +679,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             flag,
             address,
             value,
-            a,
-            b,
-            c,
-            d,
+            temp_vars,
             temp_var_selectors,
             even_bits: _,
             pow_table: _,
@@ -715,6 +711,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             // We will reassign the ones we use.
                             // This works around the unassigned cell error.
                             //
+                            // FIXME(in progress)
                             // A better long term fix is improving the mock prover
                             // by using `with_selector` instead of the any `Selector` heuristic
                             region
@@ -732,7 +729,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("time: {}", step.time.0),
                                 time,
                                 offset,
-                                || Value::known(F::from_u128(step.time.0 as u128)),
+                                || Value::known(F::from(step.time.0 as u64)),
                             )
                             .unwrap();
 
@@ -741,7 +738,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("pc: {}", step.pc.0),
                                 pc,
                                 offset,
-                                || Value::known(F::from_u128(step.pc.0 as u128)),
+                                || Value::known(F::from(step.pc.0 as u64)),
                             )
                             .unwrap();
 
@@ -816,38 +813,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             let ta = F::from_u128(ta as u128);
                             let tb = F::from_u128(tb as u128);
 
-                            region
-                                .assign_advice(
-                                    || format!("a: {:?}", ta),
-                                    a,
-                                    offset,
-                                    || Value::known(ta),
-                                )
-                                .unwrap();
-                            region
-                                .assign_advice(
-                                    || format!("b: {:?}", tb),
-                                    b,
-                                    offset,
-                                    || Value::known(tb),
-                                )
-                                .unwrap();
-                            region
-                                .assign_advice(
-                                    || format!("c: {:?}", tc),
-                                    c,
-                                    offset,
-                                    || Value::known(tc),
-                                )
-                                .unwrap();
-                            region
-                                .assign_advice(
-                                    || format!("d: {:?}", td),
-                                    d,
-                                    offset,
-                                    || Value::known(td),
-                                )
-                                .unwrap();
+                            temp_vars.assign_temp_vars(
+                                &mut region,
+                                ta,
+                                tb,
+                                tc,
+                                td,
+                                offset,
+                            );
 
                             // TODO only assign flags for relevant instructions.
                             flag2.assign_flag2(
@@ -953,6 +926,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         }
                     }
 
+                    // TODO explicitly assign the rest of time as 0.
                     region
                         .assign_advice(
                             || format!("Terminating time: {}", 0),
