@@ -114,7 +114,8 @@ impl<const WORD_BITS: u32> TempVars<WORD_BITS> {
         let d = EvenBitsConfig::configure(
             meta,
             d,
-            &[shift, prod, sprod],
+            // FIXME enforce on shift
+            &[prod, sprod],
             s_table,
             even_bits,
         );
