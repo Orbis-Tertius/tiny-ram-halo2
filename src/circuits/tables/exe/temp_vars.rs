@@ -115,6 +115,7 @@ impl<const WORD_BITS: u32> TempVars<WORD_BITS> {
             meta,
             d,
             // FIXME enforce on shift
+            // &[shift, prod, sprod],
             &[prod, sprod],
             s_table,
             even_bits,
