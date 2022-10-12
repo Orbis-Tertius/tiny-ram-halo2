@@ -6,10 +6,10 @@
   outputs = { self, nixpkgs, dream2nix, fenix }:
     let
       pkgs = nixpkgs.legacyPackages.x86_64-linux;
-      channelVersion = "1.63.0";
+      channelVersion = "1.64.0";
       toolchain = fenix.packages.x86_64-linux.toolchainOf {
         channel = channelVersion;
-        sha256 = "sha256-KXx+ID0y4mg2B3LHp7IyaiMrdexF6octADnAtFIOjrY=";
+        sha256 = "sha256-8len3i8oTwJSOJZMosGGXHBL5BVuGQnWOT2St5YAUFU=";
       };
     in
     (dream2nix.lib.makeFlakeOutputs {
