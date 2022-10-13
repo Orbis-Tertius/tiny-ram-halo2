@@ -1,13 +1,17 @@
+pub mod out;
+
 use core::panic;
 use std::fmt::Debug;
 
-use halo2_proofs::{arithmetic::FieldExt, plonk};
+use halo2_proofs::arithmetic::FieldExt;
 
 use crate::{
     assign::{NewColumn, PushRow},
     circuits::{changed::UnChangedSelectors, shift},
     trace::{self, *},
 };
+
+use self::out::{Out, OutPut};
 
 #[derive(Debug, Clone)]
 pub struct ExeRow<const REG_COUNT: usize, C: Copy> {
@@ -28,109 +32,6 @@ impl<const REG_COUNT: usize, C: Copy> ExeRow<REG_COUNT, C> {
             immediate: NewColumn::new_column(meta),
             regs: [0; REG_COUNT].map(|_| NewColumn::new_column(meta)),
             v_addr: NewColumn::new_column(meta),
-        }
-    }
-}
-
-/// This corresponds to `sout` in the paper (page 24).
-#[derive(Debug, Clone, Copy)]
-pub struct Out<T> {
-    /// logical
-    pub and: T,
-    pub xor: T,
-    pub or: T,
-
-    /// arithmetic
-    pub sum: T,
-    pub ssum: T,
-    pub prod: T,
-    pub sprod: T,
-    pub mod_: T,
-
-    pub shift: T,
-
-    pub flag1: T,
-    pub flag2: T,
-    pub flag3: T,
-    pub flag4: T,
-}
-
-impl<T> Out<T> {
-    pub fn new(mut new_fn: impl FnMut() -> T) -> Out<T> {
-        Out {
-            and: new_fn(),
-            xor: new_fn(),
-            or: new_fn(),
-            sum: new_fn(),
-            prod: new_fn(),
-            ssum: new_fn(),
-            sprod: new_fn(),
-            mod_: new_fn(),
-            shift: new_fn(),
-            flag1: new_fn(),
-            flag2: new_fn(),
-            flag3: new_fn(),
-            flag4: new_fn(),
-        }
-    }
-}
-
-impl<C> Out<C> {
-    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
-        self,
-        region: &mut R,
-        vals: Out<bool>,
-    ) -> Result<(), plonk::Error> {
-        let Self {
-            and,
-            xor,
-            or,
-            sum,
-            prod,
-            ssum,
-            sprod,
-            mod_,
-            shift,
-            flag1,
-            flag2,
-            flag3,
-            flag4,
-        } = self;
-
-        region.push_cell(and, vals.and.into())?;
-        region.push_cell(xor, vals.xor.into())?;
-        region.push_cell(or, vals.or.into())?;
-        region.push_cell(sum, vals.sum.into())?;
-        region.push_cell(prod, vals.prod.into())?;
-        region.push_cell(ssum, vals.ssum.into())?;
-        region.push_cell(sprod, vals.sprod.into())?;
-        region.push_cell(mod_, vals.mod_.into())?;
-        region.push_cell(shift, vals.shift.into())?;
-        region.push_cell(flag1, vals.flag1.into())?;
-        region.push_cell(flag2, vals.flag2.into())?;
-        region.push_cell(flag3, vals.flag3.into())?;
-        region.push_cell(flag4, vals.flag4.into())?;
-
-        Ok(())
-    }
-}
-
-impl<T> Out<T> {
-    fn convert<B: From<T>>(self) -> Out<B> {
-        Out {
-            and: self.and.into(),
-            xor: self.xor.into(),
-            or: self.or.into(),
-            sum: self.sum.into(),
-            prod: self.prod.into(),
-            ssum: self.ssum.into(),
-            sprod: self.sprod.into(),
-            mod_: self.mod_.into(),
-            shift: self.shift.into(),
-            flag1: self.flag1.into(),
-            flag2: self.flag2.into(),
-            flag3: self.flag3.into(),
-            flag4: self.flag4.into(),
         }
     }
 }
@@ -198,21 +99,6 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
     for TempVarSelectorsRow<REG_COUNT>
 {
     fn from(inst: &trace::Instruction) -> Self {
-        let out = Out {
-            and: false,
-            xor: false,
-            or: false,
-            sum: false,
-            prod: false,
-            ssum: false,
-            sprod: false,
-            mod_: false,
-            shift: false,
-            flag1: false,
-            flag2: false,
-            flag3: false,
-            flag4: false,
-        };
         let ch = UnChangedSelectors {
             regs: Registers([true; REG_COUNT]),
             pc: true,
@@ -226,12 +112,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Out {
-                    and: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: And::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -243,12 +124,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Out {
-                    or: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: Or::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -260,12 +136,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Out {
-                    xor: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: Xor::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -278,12 +149,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::MaxWord,
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Out {
-                    xor: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: Not::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -296,7 +162,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Zero,
-                out: Out { sum: true, ..out },
+                out: Add::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -308,7 +174,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Reg(rj),
                 d: SelectionD::Zero,
-                out: Out { sum: true, ..out },
+                out: Sub::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -320,12 +186,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
-                out: Out {
-                    prod: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: Mull::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -337,12 +198,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
-                out: Out {
-                    prod: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: UMulh::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -354,12 +210,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
-                out: Out {
-                    sprod: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: SMulh::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -371,13 +222,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::RegN(ri),
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
-                out: Out {
-                    mod_: true,
-                    flag1: true,
-                    flag2: true,
-                    flag3: true,
-                    ..out
-                },
+                out: UDiv::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -389,13 +234,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
-                out: Out {
-                    mod_: true,
-                    flag1: true,
-                    flag2: true,
-                    flag3: true,
-                    ..out
-                },
+                out: UMod::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -407,11 +246,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
-                out: Out {
-                    shift: true,
-                    flag4: true,
-                    ..out
-                },
+                out: Shl::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -423,11 +258,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
-                out: Out {
-                    shift: true,
-                    flag4: true,
-                    ..out
-                },
+                out: Shr::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -441,12 +272,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(ri),
                 c: SelectionC::NonDet,
                 d: SelectionD::Unset,
-                out: Out {
-                    xor: true,
-                    flag1: true,
-                    flag2: true,
-                    ..out
-                },
+                out: Cmpe::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
             trace::Instruction::Cmpa(Cmpa { ri, a }) => Self {
@@ -454,7 +280,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
-                out: Out { sum: true, ..out },
+                out: Cmpa::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
             trace::Instruction::Cmpae(Cmpae { ri, a }) => Self {
@@ -462,7 +288,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::One,
-                out: Out { sum: true, ..out },
+                out: Cmpae::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
             trace::Instruction::Cmpg(Cmpg { ri, a }) => Self {
@@ -470,7 +296,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
-                out: Out { ssum: true, ..out },
+                out: Cmpg::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
             trace::Instruction::Cmpge(Cmpge { ri, a }) => Self {
@@ -478,7 +304,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::One,
-                out: Out { ssum: true, ..out },
+                out: Cmpge::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
             trace::Instruction::Mov(Mov { ri, a }) => Self {
@@ -486,7 +312,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
-                out: Out { xor: true, ..out },
+                out: Mov::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
@@ -499,7 +325,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 // The table on page 34 call for rj,t.
                 // It's a typo, on page 33 d = ri,t.
                 d: SelectionD::Reg(ri),
-                out: Out { mod_: true, ..out },
+                out: CMov::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
@@ -510,7 +336,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::PcN,
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
-                out: Out { xor: true, ..out },
+                out: Jmp::OUT,
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
             trace::Instruction::CJmp(CJmp { a }) => Self {
@@ -518,7 +344,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::A(a),
                 c: SelectionC::Zero,
                 d: SelectionD::PcPlusOne,
-                out: Out { mod_: true, ..out },
+                out: CJmp::OUT,
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
             trace::Instruction::CnJmp(CnJmp { a }) => Self {
@@ -526,7 +352,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::PcPlusOne,
                 c: SelectionC::Zero,
                 d: SelectionD::A(a),
-                out: Out { mod_: true, ..out },
+                out: CnJmp::OUT,
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
 
@@ -535,9 +361,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Reg(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                // FIXME
-                // out: Out { xor: true, ..out },
-                out,
+                out: LoadW::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
@@ -548,7 +372,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                out: Out { xor: true, ..out },
+                out: StoreW::OUT,
                 ch,
             },
 
@@ -559,7 +383,7 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 b: SelectionB::Pc,
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                out,
+                out: Answer::OUT,
                 ch,
             },
         }
