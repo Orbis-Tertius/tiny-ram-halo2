@@ -1,5 +1,6 @@
 pub mod assign;
 pub mod circuits;
+pub mod instructions;
 #[cfg(test)]
 pub mod test_utils;
 pub mod trace;

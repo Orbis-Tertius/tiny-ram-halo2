@@ -1,13 +1,6 @@
 use halo2_proofs::{arithmetic::FieldExt, plonk};
 
-use crate::{
-    assign::PushRow,
-    trace::{
-        Add, And, Answer, CJmp, CMov, Cmpa, Cmpae, Cmpe, Cmpg, Cmpge, CnJmp, Jmp,
-        LoadW, Mov, Mull, Not, Or, SMulh, Shl, Shr, StoreW, Sub, UDiv, UMod, UMulh,
-        Xor,
-    },
-};
+use crate::{assign::PushRow, instructions::*};
 
 pub trait OutPut {
     const OUT: Out<bool>;
@@ -133,7 +126,7 @@ impl<T> Out<T> {
     }
 }
 
-impl OutPut for And {
+impl<R, A> OutPut for And<R, A> {
     const OUT: Out<bool> = Out {
         and: true,
         flag1: true,
@@ -142,7 +135,7 @@ impl OutPut for And {
     };
 }
 
-impl OutPut for Or {
+impl<R, A> OutPut for Or<R, A> {
     const OUT: Out<bool> = Out {
         or: true,
         flag1: true,
@@ -151,7 +144,7 @@ impl OutPut for Or {
     };
 }
 
-impl OutPut for Xor {
+impl<R, A> OutPut for Xor<R, A> {
     const OUT: Out<bool> = Out {
         xor: true,
         flag1: true,
@@ -160,7 +153,7 @@ impl OutPut for Xor {
     };
 }
 
-impl OutPut for Not {
+impl<R, A> OutPut for Not<R, A> {
     const OUT: Out<bool> = Out {
         xor: true,
         flag1: true,
@@ -169,21 +162,21 @@ impl OutPut for Not {
     };
 }
 
-impl OutPut for Add {
+impl<R, A> OutPut for Add<R, A> {
     const OUT: Out<bool> = Out {
         sum: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Sub {
+impl<R, A> OutPut for Sub<R, A> {
     const OUT: Out<bool> = Out {
         sum: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Mull {
+impl<R, A> OutPut for Mull<R, A> {
     const OUT: Out<bool> = Out {
         prod: true,
         flag1: true,
@@ -192,7 +185,7 @@ impl OutPut for Mull {
     };
 }
 
-impl OutPut for UMulh {
+impl<R, A> OutPut for UMulh<R, A> {
     const OUT: Out<bool> = Out {
         prod: true,
         flag1: true,
@@ -201,7 +194,7 @@ impl OutPut for UMulh {
     };
 }
 
-impl OutPut for SMulh {
+impl<R, A> OutPut for SMulh<R, A> {
     const OUT: Out<bool> = Out {
         sprod: true,
         flag1: true,
@@ -210,7 +203,7 @@ impl OutPut for SMulh {
     };
 }
 
-impl OutPut for UDiv {
+impl<R, A> OutPut for UDiv<R, A> {
     const OUT: Out<bool> = Out {
         mod_: true,
         flag1: true,
@@ -220,7 +213,7 @@ impl OutPut for UDiv {
     };
 }
 
-impl OutPut for UMod {
+impl<R, A> OutPut for UMod<R, A> {
     const OUT: Out<bool> = Out {
         mod_: true,
         flag1: true,
@@ -230,7 +223,7 @@ impl OutPut for UMod {
     };
 }
 
-impl OutPut for Shl {
+impl<R, A> OutPut for Shl<R, A> {
     const OUT: Out<bool> = Out {
         shift: true,
         flag4: true,
@@ -238,7 +231,7 @@ impl OutPut for Shl {
     };
 }
 
-impl OutPut for Shr {
+impl<R, A> OutPut for Shr<R, A> {
     const OUT: Out<bool> = Out {
         shift: true,
         flag4: true,
@@ -246,7 +239,7 @@ impl OutPut for Shr {
     };
 }
 
-impl OutPut for Cmpe {
+impl<R, A> OutPut for Cmpe<R, A> {
     const OUT: Out<bool> = Out {
         xor: true,
         flag1: true,
@@ -255,83 +248,83 @@ impl OutPut for Cmpe {
     };
 }
 
-impl OutPut for Cmpa {
+impl<R, A> OutPut for Cmpa<R, A> {
     const OUT: Out<bool> = Out {
         sum: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Cmpae {
+impl<R, A> OutPut for Cmpae<R, A> {
     const OUT: Out<bool> = Out {
         sum: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Cmpg {
+impl<R, A> OutPut for Cmpg<R, A> {
     const OUT: Out<bool> = Out {
         ssum: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Cmpge {
+impl<R, A> OutPut for Cmpge<R, A> {
     const OUT: Out<bool> = Out {
         ssum: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Mov {
+impl<R, A> OutPut for Mov<R, A> {
     const OUT: Out<bool> = Out {
         xor: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for CMov {
+impl<R, A> OutPut for CMov<R, A> {
     const OUT: Out<bool> = Out {
         mod_: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Jmp {
+impl<A> OutPut for Jmp<A> {
     const OUT: Out<bool> = Out {
         xor: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for CJmp {
+impl<A> OutPut for CJmp<A> {
     const OUT: Out<bool> = Out {
         mod_: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for CnJmp {
+impl<A> OutPut for CnJmp<A> {
     const OUT: Out<bool> = Out {
         mod_: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for LoadW {
+impl<R, A> OutPut for LoadW<R, A> {
     const OUT: Out<bool> = Out {
         // FIXME
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for StoreW {
+impl<R, A> OutPut for StoreW<R, A> {
     const OUT: Out<bool> = Out {
         xor: true,
         ..EMPTY_OUT
     };
 }
 
-impl OutPut for Answer {
+impl<A> OutPut for Answer<A> {
     const OUT: Out<bool> = EMPTY_OUT;
 }

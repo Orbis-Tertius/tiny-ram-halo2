@@ -1,4 +1,5 @@
 pub mod out;
+pub mod out_table;
 
 use core::panic;
 use std::fmt::Debug;
@@ -8,6 +9,7 @@ use halo2_proofs::arithmetic::FieldExt;
 use crate::{
     assign::{NewColumn, PushRow},
     circuits::{changed::UnChangedSelectors, shift},
+    instructions::*,
     trace::{self, *},
 };
 
@@ -95,10 +97,10 @@ pub struct TempVarSelectorsRow<const REG_COUNT: usize> {
     pub ch: UnChangedSelectors<REG_COUNT, bool>,
 }
 
-impl<const REG_COUNT: usize> From<&trace::Instruction>
+impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
     for TempVarSelectorsRow<REG_COUNT>
 {
-    fn from(inst: &trace::Instruction) -> Self {
+    fn from(inst: &Instruction<RegName, ImmediateOrRegName>) -> Self {
         let ch = UnChangedSelectors {
             regs: Registers([true; REG_COUNT]),
             pc: true,
@@ -107,36 +109,36 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
 
         match *inst {
             // Reference Page 27, Fig. 3
-            trace::Instruction::And(And { ri, rj, a }) => Self {
+            Instruction::And(And { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: And::OUT,
+                out: And::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::Or(Or { ri, rj, a }) => Self {
+            Instruction::Or(Or { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Or::OUT,
+                out: Or::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::Xor(Xor { ri, rj, a }) => Self {
+            Instruction::Xor(Xor { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Xor::OUT,
+                out: Xor::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -144,12 +146,12 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
             },
 
-            trace::Instruction::Not(Not { ri, a }) => Self {
+            Instruction::Not(Not { ri, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::MaxWord,
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
-                out: Not::OUT,
+                out: Not::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -157,108 +159,108 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
                 },
             },
             // Reference Page 27, Fig. 4
-            trace::Instruction::Add(Add { ri, rj, a }) => Self {
+            Instruction::Add(Add { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Zero,
-                out: Add::OUT,
+                out: Add::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::Sub(Sub { ri, rj, a }) => Self {
+            Instruction::Sub(Sub { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Reg(rj),
                 d: SelectionD::Zero,
-                out: Sub::OUT,
+                out: Sub::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::Mull(Mull { ri, rj, a }) => Self {
+            Instruction::Mull(Mull { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
-                out: Mull::OUT,
+                out: Mull::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::UMulh(UMulh { ri, rj, a }) => Self {
+            Instruction::UMulh(UMulh { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
-                out: UMulh::OUT,
+                out: UMulh::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::SMulh(SMulh { ri, rj, a }) => Self {
+            Instruction::SMulh(SMulh { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
-                out: SMulh::OUT,
+                out: SMulh::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::UDiv(UDiv { ri, rj, a }) => Self {
+            Instruction::UDiv(UDiv { ri, rj, a }) => Self {
                 a: SelectionA::NonDet,
                 b: SelectionB::RegN(ri),
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
-                out: UDiv::OUT,
+                out: UDiv::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::UMod(UMod { ri, rj, a }) => Self {
+            Instruction::UMod(UMod { ri, rj, a }) => Self {
                 a: SelectionA::RegN(ri),
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
-                out: UMod::OUT,
+                out: UMod::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::Shl(Shl { ri, rj, a }) => Self {
+            Instruction::Shl(Shl { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
-                out: Shl::OUT,
+                out: Shl::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
                     ..ch
                 },
             },
-            trace::Instruction::Shr(Shr { ri, rj, a }) => Self {
+            Instruction::Shr(Shr { ri, rj, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(rj),
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
-                out: Shr::OUT,
+                out: Shr::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     flag: false,
@@ -267,123 +269,123 @@ impl<const REG_COUNT: usize> From<&trace::Instruction>
             },
 
             // Reference Page 33, Fig. 8
-            trace::Instruction::Cmpe(Cmpe { ri, a }) => Self {
+            Instruction::Cmpe(Cmpe { ri, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Reg(ri),
                 c: SelectionC::NonDet,
                 d: SelectionD::Unset,
-                out: Cmpe::OUT,
+                out: Cmpe::<(), ()>::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpa(Cmpa { ri, a }) => Self {
+            Instruction::Cmpa(Cmpa { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
-                out: Cmpa::OUT,
+                out: Cmpa::<(), ()>::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpae(Cmpae { ri, a }) => Self {
+            Instruction::Cmpae(Cmpae { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::One,
-                out: Cmpae::OUT,
+                out: Cmpae::<(), ()>::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpg(Cmpg { ri, a }) => Self {
+            Instruction::Cmpg(Cmpg { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
-                out: Cmpg::OUT,
+                out: Cmpg::<(), ()>::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Cmpge(Cmpge { ri, a }) => Self {
+            Instruction::Cmpge(Cmpge { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
                 b: SelectionB::NonDet,
                 c: SelectionC::A(a),
                 d: SelectionD::One,
-                out: Cmpge::OUT,
+                out: Cmpge::<(), ()>::OUT,
                 ch: UnChangedSelectors { flag: false, ..ch },
             },
-            trace::Instruction::Mov(Mov { ri, a }) => Self {
+            Instruction::Mov(Mov { ri, a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
-                out: Mov::OUT,
+                out: Mov::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
                 },
             },
-            trace::Instruction::CMov(CMov { ri, a }) => Self {
+            Instruction::CMov(CMov { ri, a }) => Self {
                 a: SelectionA::RegN(ri),
                 b: SelectionB::A(a),
                 c: SelectionC::Zero,
                 // The table on page 34 call for rj,t.
                 // It's a typo, on page 33 d = ri,t.
                 d: SelectionD::Reg(ri),
-                out: CMov::OUT,
+                out: CMov::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
                 },
             },
-            trace::Instruction::Jmp(Jmp { a }) => Self {
+            Instruction::Jmp(Jmp { a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::PcN,
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
-                out: Jmp::OUT,
+                out: Jmp::<()>::OUT,
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
-            trace::Instruction::CJmp(CJmp { a }) => Self {
+            Instruction::CJmp(CJmp { a }) => Self {
                 a: SelectionA::PcN,
                 b: SelectionB::A(a),
                 c: SelectionC::Zero,
                 d: SelectionD::PcPlusOne,
-                out: CJmp::OUT,
+                out: CJmp::<()>::OUT,
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
-            trace::Instruction::CnJmp(CnJmp { a }) => Self {
+            Instruction::CnJmp(CnJmp { a }) => Self {
                 a: SelectionA::PcN,
                 b: SelectionB::PcPlusOne,
                 c: SelectionC::Zero,
                 d: SelectionD::A(a),
-                out: CnJmp::OUT,
+                out: CnJmp::<()>::OUT,
                 ch: UnChangedSelectors { pc: false, ..ch },
             },
 
-            trace::Instruction::LoadW(LoadW { ri, .. }) => Self {
+            Instruction::LoadW(LoadW { ri, .. }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::Reg(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                out: LoadW::OUT,
+                out: LoadW::<(), ()>::OUT,
                 ch: UnChangedSelectors {
                     regs: ch.regs.set(ri, false),
                     ..ch
                 },
             },
-            trace::Instruction::StoreW(StoreW { ri, .. }) => Self {
+            Instruction::StoreW(StoreW { ri, .. }) => Self {
                 a: SelectionA::VAddr,
                 b: SelectionB::RegN(ri),
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                out: StoreW::OUT,
+                out: StoreW::<(), ()>::OUT,
                 ch,
             },
 
             // Answer's selection vectors, except `a`, are undefined.
             // Reference page 35
-            trace::Instruction::Answer(Answer { a }) => Self {
+            Instruction::Answer(Answer { a }) => Self {
                 a: SelectionA::A(a),
                 b: SelectionB::Pc,
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
-                out: Answer::OUT,
+                out: Answer::<()>::OUT,
                 ch,
             },
         }
