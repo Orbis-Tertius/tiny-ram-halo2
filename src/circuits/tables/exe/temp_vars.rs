@@ -7,7 +7,7 @@ use halo2_proofs::{
 use crate::{
     assign::ConstraintSys,
     circuits::tables::{
-        aux::{Out, TempVarSelectors},
+        aux::{out::Out, TempVarSelectors},
         even_bits::{EvenBitsConfig, EvenBitsTable},
     },
 };
