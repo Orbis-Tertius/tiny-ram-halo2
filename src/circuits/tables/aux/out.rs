@@ -64,6 +64,24 @@ impl<T> Out<T> {
             flag4: new_fn(),
         }
     }
+
+    pub fn map<B>(self, mut f: impl FnMut(T) -> B) -> Out<B> {
+        Out {
+            and: f(self.and),
+            xor: f(self.xor),
+            or: f(self.or),
+            sum: f(self.sum),
+            prod: f(self.prod),
+            ssum: f(self.ssum),
+            sprod: f(self.sprod),
+            mod_: f(self.mod_),
+            shift: f(self.shift),
+            flag1: f(self.flag1),
+            flag2: f(self.flag2),
+            flag3: f(self.flag3),
+            flag4: f(self.flag4),
+        }
+    }
 }
 
 impl<C> Out<C> {
