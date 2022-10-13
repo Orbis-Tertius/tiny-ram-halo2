@@ -208,6 +208,7 @@ mod tests {
 
     use crate::{
         circuits::tables::prog::{ProgChip, ProgCircuit},
+        instructions::*,
         trace::*,
     };
 

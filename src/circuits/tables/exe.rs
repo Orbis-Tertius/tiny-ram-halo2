@@ -18,8 +18,9 @@ use crate::{
         flag4::Flag4Config, logic::LogicConfig, modulo::ModConfig, prod::ProdConfig,
         shift::ShiftConfig, sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
+    instructions::{Instruction, Shl, Shr},
     leak_once,
-    trace::{Instruction, RegName, Registers, Shl, Shr, Trace},
+    trace::{RegName, Registers, Trace},
 };
 
 use self::temp_vars::TempVars;
@@ -993,8 +994,8 @@ mod tests {
     use proptest::{prop_compose, proptest};
 
     use crate::{
-        circuits::tables::exe::ExeCircuit, test_utils::gen_proofs_and_verify,
-        trace::*,
+        circuits::tables::exe::ExeCircuit, instructions::*,
+        test_utils::gen_proofs_and_verify, trace::*,
     };
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
@@ -1021,7 +1022,7 @@ mod tests {
         trace
     }
     fn mov_ins_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
-        ins: Instruction,
+        ins: Instruction<RegName, ImmediateOrRegName>,
         b: u32,
     ) -> Trace<WORD_BITS, REG_COUNT> {
         let prog = Program(vec![
