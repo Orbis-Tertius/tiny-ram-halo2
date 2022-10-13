@@ -240,7 +240,7 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for EvenBitsChip<F, WORD_BITS> {
     }
 }
 
-fn decompose<F: FieldExt>(word: F) -> (EvenBits<F>, OddBits<F>) {
+pub fn decompose<F: FieldExt>(word: F) -> (EvenBits<F>, OddBits<F>) {
     // FIXME re-enable assertion
     // assert!(word <= F::from_u128(u128::MAX));
 

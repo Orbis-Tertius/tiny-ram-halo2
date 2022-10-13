@@ -1438,4 +1438,11 @@ mod tests {
             mock_prover_test::<8, 8>(mov_shr_answer(Word(a), Word(b)))
         }
     }
+
+    #[test]
+    fn mov_shr_answer_mock_prover_0_1() {
+        let a = 0;
+        let b = 1;
+        mock_prover_test::<8, 8>(mov_shr_answer(Word(a), Word(b)))
+    }
 }

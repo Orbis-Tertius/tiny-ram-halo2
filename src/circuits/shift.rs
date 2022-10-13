@@ -1,5 +1,5 @@
 use crate::assign::ConstraintSys;
-use crate::trace::truncate;
+use crate::trace::{get_word_size_bit_mask_msb, truncate};
 use halo2_proofs::circuit::{Region, Value};
 use halo2_proofs::pasta::Fp;
 use halo2_proofs::plonk::Constraints;
@@ -14,7 +14,7 @@ use halo2_proofs::{
 };
 use std::marker::PhantomData;
 
-use super::tables::even_bits::{EvenBitsConfig, EvenBitsTable};
+use super::tables::even_bits::{self, EvenBitsConfig, EvenBitsTable};
 use super::tables::pow::PowTable;
 
 #[derive(Debug, Clone, Copy)]
@@ -113,7 +113,8 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             let one = Expression::Constant(F::one());
             let two = Expression::Constant(F::from(2));
             let word_bits = Expression::Constant(F::from(WORD_BITS as u64));
-            let max = Expression::Constant(F::from(2u64.pow(WORD_BITS)));
+            // The cardinality of Word 2^W
+            let card = Expression::Constant(F::from(2u64.pow(WORD_BITS)));
 
             let s_table = meta.query_selector(s_table);
             let s_shift = meta.query_advice(s_shift, Rotation::cur());
@@ -132,9 +133,12 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             Constraints::with_selector(
                 s_table * s_shift,
                 [
+                    // a_shift is 1 or zero
                     a_shift.clone() * (a_shift.clone() - one.clone()),
-                    (one - a_shift) * (word_bits - a - (two * r_o) - r_e),
-                    a_power * b - d - max * c,
+                    // Redundant with FLAG4 (page 31)
+                    // (one - a_shift) * (word_bits - a - (two * r_o) - r_e),
+                    // SHIFT
+                    dbg!(a_power) * dbg!(b) - dbg!(d) - dbg!(card) * dbg!(c),
                 ],
             )
         });
@@ -155,8 +159,8 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                     s_shift.clone() * (a.clone() + a_shift * (word_bits - a)),
                     pow.values,
                 ),
-                // (a_power, pow.powers),
                 // When s_shift not set, we lookup (value: 0, value: 1)
+                // In the paper this is just (a_power, pow.powers)
                 (
                     (s_shift.clone() * a_power) + one.clone() - (s_shift * one),
                     pow.powers,
@@ -183,10 +187,10 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             )
             .unwrap();
 
-        let a_power = if shift_bits == WORD_BITS as _ {
+        let a_power = if a_shift {
             0
         } else {
-            2u64.pow(shift_bits as _)
+            2u64.pow(shift_bits as _) % 2u64.pow(WORD_BITS)
         };
         region
             .assign_advice(
@@ -209,9 +213,104 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
     }
 }
 
+fn eval_constraints<const WORD_BITS: u32, F: FieldExt>(
+    a: i128,
+    b: i128,
+    c: i128,
+    d: i128,
+    a_shift: bool,
+    a_power: u64,
+    r: u64,
+) {
+    let a_shift = a_shift as i128;
+    let a_power = a_power as i128;
+    let r = r as i128;
+
+    let (r_e, r_o) = even_bits::decompose(f_from_i128::<F>(r));
+    let r_e: i128 = r_e.0.get_lower_128().try_into().unwrap();
+    let r_o: i128 = r_o.0.get_lower_128().try_into().unwrap();
+
+    eprintln!("a_shift is a bool: {}", a_shift * (a_shift - 1));
+    eprintln!(
+        "Part of FLAG4: {}",
+        (1 - a_shift) * (WORD_BITS as i128 - a - (2 * r_o) - r_e)
+    );
+    eprintln!("SHIFT: {}", a_power * b - d - (2i128.pow(WORD_BITS) * c));
+    eprintln!(
+        "SHIFT = {} * {} - {} - ({} * {})",
+        a_power,
+        b,
+        d,
+        2i128.pow(WORD_BITS),
+        c
+    );
+}
+
+fn f_from_i128<F: FieldExt>(n: i128) -> F {
+    if n < 0 {
+        -F::from_u128((-n).try_into().unwrap())
+    } else {
+        F::from_u128(n.try_into().unwrap())
+    }
+}
+
 pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, c: u128) -> F {
-    F::from(2u64.pow((a) as _)) * F::from_u128(b)
-        - (F::from(2u64.pow(WORD_BITS)) * F::from_u128(c))
+    let a = i128::try_from(a).unwrap();
+    let b = i128::try_from(b).unwrap();
+    let c = i128::try_from(c).unwrap();
+
+    let a_shift = WORD_BITS < a as _;
+    dbg!(a_shift);
+    let a_power = if a_shift {
+        0
+    } else {
+        2u64.pow(a.try_into().unwrap()) % 2u64.pow(WORD_BITS)
+    };
+    dbg!(a_power);
+
+    let r = if a > WORD_BITS as _ {
+        0
+    } else {
+        assert!(a >= 0);
+        WORD_BITS as i128 - a
+    };
+    dbg!(r);
+
+    assert!(a <= u32::MAX.into());
+
+    let d =
+        (2i128.pow((a) as _)) * (b as i128) - ((2i128.pow(WORD_BITS)) * (c as i128));
+    eprintln!("a: {}, b: {}, c: {}, d: {}", a, b, c, d);
+    eval_constraints::<WORD_BITS, F>(
+        a,
+        b,
+        c,
+        d,
+        a_shift,
+        a_power,
+        r.try_into().unwrap(),
+    );
+
+    let d: i128 = truncate::<WORD_BITS>(
+        (2i128.pow(a.try_into().unwrap()) * b).try_into().unwrap(),
+    )
+    .0
+    .try_into()
+    .unwrap();
+    eprintln!("a: {}, b: {}, c: {}, d: {}", a, b, c, d);
+    eval_constraints::<WORD_BITS, F>(
+        a,
+        b,
+        c,
+        d,
+        a_shift,
+        a_power,
+        r.try_into().unwrap(),
+    );
+
+    // assert!(d < 2i128.pow(WORD_BITS));
+    // F::from(u64::try_from(d).unwrap())
+    f_from_i128(d)
 }
 
 pub fn non_det_c<const WORD_BITS: u32, F: FieldExt>(a: i128, b: i128, d: i128) -> F {
@@ -253,7 +352,9 @@ impl<F: FieldExt, const WORD_BITS: u32> Chip<F> for ShiftChip<F, WORD_BITS> {
 
 #[derive(Default, Debug, Clone, Copy)]
 pub struct ShiftCircuit<F: FieldExt, const WORD_BITS: u32, const SHIFT_RIGHT: bool> {
+    /// b
     pub word: Option<F>,
+    /// a
     pub shift_bits: Option<F>,
 }
 
@@ -368,21 +469,71 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                             let b = b.get_lower_128();
 
                             if SHIFT_RIGHT {
-                                let c = truncate::<WORD_BITS>(
+                                let out_s: u128 = truncate::<WORD_BITS>(
                                     b >> self.shift_bits.unwrap().get_lower_128(),
                                 )
                                 .0
                                 .into();
+
+                                // let out = 2u128.pow(a.try_into().unwrap()) * b;
+                                let out_l = dbg!(truncate::<WORD_BITS>(out_s));
+                                let out_h = dbg!(
+                                    out_s & get_word_size_bit_mask_msb(WORD_BITS)
+                                );
+                                // assert_eq!(out_s, out_l.0.into());
+
+                                let a = i128::try_from(a).unwrap();
+                                let b = i128::try_from(b).unwrap();
+
+                                let a_shift = WORD_BITS < a as _;
+                                dbg!(a_shift);
+                                let a_power = if a_shift {
+                                    0
+                                } else {
+                                    2u64.pow(a.try_into().unwrap())
+                                        % 2u64.pow(WORD_BITS)
+                                };
+                                dbg!(a_power);
+
+                                let r = if a > WORD_BITS as _ {
+                                    0
+                                } else {
+                                    assert!(a >= 0);
+                                    WORD_BITS as i128 - a
+                                };
+                                dbg!(r);
+
+                                let a = WORD_BITS as i128 - a;
+                                eval_constraints::<WORD_BITS, Fp>(
+                                    a,
+                                    b,
+                                    out_h.try_into().unwrap(),
+                                    out_l.0.try_into().unwrap(),
+                                    a_shift,
+                                    a_power,
+                                    r.try_into().unwrap(),
+                                );
+
+                                // let c = (b >> a) & ((2u128.pow(WORD_BITS)) - 1);
+                                // // assert_eq!(c, c_m_h);
+                                // assert_eq!(c, c_t);
+
+                                // let d = Value::known(non_det_d::<WORD_BITS, Fp>(
+                                //     a, b, c,
+                                // ));
+
+                                // let d = Value::known(non_det_d::<WORD_BITS, Fp>(
+                                //     WORD_BITS as u128 - a,
+                                //     b,
+                                //     c,
+                                // ));
+
                                 region
                                     .assign_advice(
-                                        || "d",
-                                        config.0.d,
+                                        || "c",
+                                        config.0.c,
                                         0,
-                                        || {
-                                            Value::known(non_det_d::<WORD_BITS, Fp>(
-                                                a, b, c,
-                                            ))
-                                        },
+                                        || Value::known(Fp::from_u128(out_h)),
                                     )
                                     .unwrap();
                             } else {
@@ -416,7 +567,8 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                             || "res",
                             config.1,
                             0,
-                            if SHIFT_RIGHT { config.0.c } else { config.0.d },
+                            // if SHIFT_RIGHT { config.0.c } else { config.0.d },
+                            config.0.d,
                             0,
                         )
                         .unwrap();
@@ -438,15 +590,22 @@ mod tests {
 
     prop_compose! {
       fn valid_values(word_bits: u32, right_shift: bool)
-              (word in 0..2u64.pow(word_bits), s_bits in 0..(word_bits))
+              (word in 0..2u64.pow(word_bits), shift_bits in 0..(word_bits))
               -> (u64, u64, u64, bool) {
-        let out = if right_shift {
-            word >> s_bits
+        let (shift_bits, out) = if right_shift {
+            (
+                // word_bits - shift_bits,
+                shift_bits,
+                (word >> shift_bits) & ((2u64.pow(word_bits)) - 1),
+            )
         } else {
-            (word << s_bits) & ((2u64.pow(word_bits)) - 1)
+            (
+                shift_bits,
+                (word << shift_bits) & ((2u64.pow(word_bits)) - 1),
+            )
         };
 
-        (s_bits as _, word, out, false)
+        (shift_bits as _, word, out, false)
       }
     }
 
@@ -454,13 +613,13 @@ mod tests {
         v: Vec<(u64, u64, u64, bool)>,
     ) -> Vec<(ShiftCircuit<Fp, WORD_BITS, SHIFT_RIGHT>, Vec<Vec<Fp>>)> {
         v.into_iter()
-            .map(|(a, b, c, flag)| {
+            .map(|(shift_bits, word, out, flag)| {
                 (
                     ShiftCircuit {
-                        word: Some(b.into()),
-                        shift_bits: Some(a.into()),
+                        word: Some(word.into()),
+                        shift_bits: Some(shift_bits.into()),
                     },
-                    vec![vec![c.into(), flag.into()]],
+                    vec![vec![out.into(), flag.into()]],
                 )
             })
             .collect()
@@ -524,6 +683,12 @@ mod tests {
 
     mod right {
         use super::*;
+
+        #[test]
+        fn mock_prover_test_0_1_1_false() {
+            mock_prover_test::<8, true>(0, 1, 1, false)
+        }
+
         proptest! {
             /// proptest does not support testing const generics.
             #[test]
