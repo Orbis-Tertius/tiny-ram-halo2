@@ -1,7 +1,7 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{AssignedCell, Region, Value},
-    plonk::{Advice, Column, ConstraintSystem, Fixed, Instance},
+    circuit::{AssignedCell, Region, Table, Value},
+    plonk::{Advice, Column, ConstraintSystem, Fixed, Instance, TableColumn},
 };
 
 pub trait NewColumn<C: Copy> {
@@ -92,6 +92,19 @@ impl<'r, F: FieldExt>
     ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
         self.0
             .assign_advice(|| "", column, self.1, &mut || Value::known(f))
+    }
+}
+
+/// An impl of push_cell for `(Region, offset)`.
+impl<'r, F: FieldExt> PushRow<F, TableColumn> for (&mut Table<'r, F>, usize) {
+    type AssignedRef = ();
+    fn push_cell(
+        &mut self,
+        column: TableColumn,
+        f: F,
+    ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
+        self.0
+            .assign_cell(|| "", column, self.1, &mut || Value::known(f))
     }
 }
 
