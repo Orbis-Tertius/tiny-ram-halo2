@@ -862,12 +862,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
                                 Instruction::Shl(Shl { a, .. }) => {
                                     let shift_bits = a.get(&step.regs);
-                                    shift.assign_shift(
-                                        &mut region,
-                                        shift_bits.0.into(),
-                                        todo!(),
-                                        offset,
-                                    );
+                                    // shift.assign_shift(
+                                    //     &mut region,
+                                    //     shift_bits.0.into(),
+                                    //     todo!(),
+                                    //     offset,
+                                    // );
                                     flag4.assign_flag4(
                                         &mut region,
                                         tb.get_lower_128().try_into().unwrap(),
@@ -877,12 +877,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 }
                                 Instruction::Shr(Shr { a, .. }) => {
                                     let shift_bits = a.get(&step.regs);
-                                    shift.assign_shift(
-                                        &mut region,
-                                        shift_bits.0.into(),
-                                        todo!(),
-                                        offset,
-                                    );
+                                    // shift.assign_shift(
+                                    //     &mut region,
+                                    //     shift_bits.0.into(),
+                                    //     todo!(),
+                                    //     offset,
+                                    // );
 
                                     flag4.assign_flag4(
                                         &mut region,
