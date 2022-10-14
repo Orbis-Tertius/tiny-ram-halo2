@@ -136,7 +136,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
                     // a_shift is 1 or zero
                     a_shift.clone() * (a_shift.clone() - one.clone()),
                     // Redundant with FLAG4 (page 31)
-                    // (one - a_shift) * (word_bits - a - (two * r_o) - r_e),
+                    (one - a_shift) * (word_bits - a - (two * r_o) - r_e),
                     // SHIFT
                     dbg!(a_power) * dbg!(b) - dbg!(d) - dbg!(card) * dbg!(c),
                 ],
@@ -174,7 +174,8 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
     pub fn assign_shift<F: FieldExt>(
         &self,
         region: &mut Region<'_, F>,
-        shift_bits: u32,
+        shift_bits: u128,
+        c: u128,
         offset: usize,
     ) {
         let a_shift = WORD_BITS < shift_bits as _;
@@ -190,7 +191,7 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
         let a_power = if a_shift {
             0
         } else {
-            2u64.pow(shift_bits as _) % 2u64.pow(WORD_BITS)
+            2u64.pow(shift_bits.try_into().unwrap()) % 2u64.pow(WORD_BITS)
         };
         region
             .assign_advice(
@@ -201,11 +202,11 @@ impl<const WORD_BITS: u32> ShiftConfig<WORD_BITS> {
             )
             .unwrap();
 
-        let r = if shift_bits > WORD_BITS as _ {
-            F::zero()
+        let r = F::from(if c == 0 {
+            0
         } else {
-            F::from((WORD_BITS - shift_bits) as u64)
-        };
+            c as u64 - shift_bits as u64 - 1
+        });
         region
             .assign_advice(|| "r", self.r_decompose.word, offset, || Value::known(r))
             .unwrap();
@@ -218,10 +219,21 @@ fn eval_constraints<const WORD_BITS: u32, F: FieldExt>(
     b: i128,
     c: i128,
     d: i128,
-    a_shift: bool,
-    a_power: u64,
-    r: u64,
 ) {
+    let a_shift = WORD_BITS < a as _;
+    dbg!(a_shift);
+    let a_power = if a_shift {
+        0
+    } else {
+        2u64.pow(a.try_into().unwrap()) % 2u64.pow(WORD_BITS)
+    };
+    dbg!(a_power);
+
+    let r = if c == 0 { 0 } else { c - a - 1 };
+    dbg!(r);
+
+    assert!(a <= u32::MAX.into());
+
     let a_shift = a_shift as i128;
     let a_power = a_power as i128;
     let r = r as i128;
@@ -230,14 +242,19 @@ fn eval_constraints<const WORD_BITS: u32, F: FieldExt>(
     let r_e: i128 = r_e.0.get_lower_128().try_into().unwrap();
     let r_o: i128 = r_o.0.get_lower_128().try_into().unwrap();
 
+    assert_eq!(0, (1 - a_shift) * (WORD_BITS as i128 - a - (2 * r_o) - r_e));
     eprintln!("a_shift is a bool: {}", a_shift * (a_shift - 1));
     eprintln!(
         "Part of FLAG4: {}",
         (1 - a_shift) * (WORD_BITS as i128 - a - (2 * r_o) - r_e)
     );
+    eprintln!(
+        "Part of FLAG4 = (1 - a_shift: {}) * (WORD_BITS: {} - a: {} - (2 * r_o: {}) - r_e: {})",
+        a_shift, WORD_BITS, a, r_o, r_e
+    );
     eprintln!("SHIFT: {}", a_power * b - d - (2i128.pow(WORD_BITS) * c));
     eprintln!(
-        "SHIFT = {} * {} - {} - ({} * {})",
+        "SHIFT = a_power {} * b: {} - d: {} - (2^W: {} * c:{})",
         a_power,
         b,
         d,
@@ -254,10 +271,10 @@ fn f_from_i128<F: FieldExt>(n: i128) -> F {
     }
 }
 
-pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, c: u128) -> F {
+pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, d: u128) -> F {
     let a = i128::try_from(a).unwrap();
     let b = i128::try_from(b).unwrap();
-    let c = i128::try_from(c).unwrap();
+    let c = i128::try_from(d).unwrap();
 
     let a_shift = WORD_BITS < a as _;
     dbg!(a_shift);
@@ -281,15 +298,7 @@ pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, c: u128) -
     let d =
         (2i128.pow((a) as _)) * (b as i128) - ((2i128.pow(WORD_BITS)) * (c as i128));
     eprintln!("a: {}, b: {}, c: {}, d: {}", a, b, c, d);
-    eval_constraints::<WORD_BITS, F>(
-        a,
-        b,
-        c,
-        d,
-        a_shift,
-        a_power,
-        r.try_into().unwrap(),
-    );
+    eval_constraints::<WORD_BITS, F>(a, b, c, d);
 
     let d: i128 = truncate::<WORD_BITS>(
         (2i128.pow(a.try_into().unwrap()) * b).try_into().unwrap(),
@@ -298,15 +307,7 @@ pub fn non_det_d<const WORD_BITS: u32, F: FieldExt>(a: u128, b: u128, c: u128) -
     .try_into()
     .unwrap();
     eprintln!("a: {}, b: {}, c: {}, d: {}", a, b, c, d);
-    eval_constraints::<WORD_BITS, F>(
-        a,
-        b,
-        c,
-        d,
-        a_shift,
-        a_power,
-        r.try_into().unwrap(),
-    );
+    eval_constraints::<WORD_BITS, F>(a, b, c, d);
 
     // assert!(d < 2i128.pow(WORD_BITS));
     // F::from(u64::try_from(d).unwrap())
@@ -378,8 +379,11 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
         let a = meta.advice_column();
         let b = meta.advice_column();
         let c = meta.advice_column();
-        meta.enable_equality(c);
         let d = meta.advice_column();
+
+        // b is right shifts result
+        // d is left shifts result
+        meta.enable_equality(b);
         meta.enable_equality(d);
 
         // Overflow flag
@@ -449,117 +453,217 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                     if self.word.is_some() || self.shift_bits.is_some() {
                         // load private
                         let a = self.shift_bits.unwrap();
-                        let b = self.word.unwrap();
-
-                        config.0.assign_shift(
-                            &mut region,
-                            a.get_lower_128().try_into().unwrap(),
-                            0,
-                        );
 
                         region
                             .assign_advice(|| "a", config.0.a, 0, || Value::known(a))
                             .unwrap();
-                        region
-                            .assign_advice(|| "b", config.0.b, 0, || Value::known(b))
-                            .unwrap();
 
                         {
                             let a = a.get_lower_128();
-                            let b = b.get_lower_128();
 
-                            if SHIFT_RIGHT {
-                                let out_s: u128 = truncate::<WORD_BITS>(
-                                    b >> self.shift_bits.unwrap().get_lower_128(),
+                            let (b, c, d) = if SHIFT_RIGHT {
+                                let d: u128 = self.word.unwrap().get_lower_128();
+                                let b: u128 = truncate::<WORD_BITS>(
+                                    d >> self.shift_bits.unwrap().get_lower_128(),
                                 )
                                 .0
                                 .into();
 
-                                // let out = 2u128.pow(a.try_into().unwrap()) * b;
-                                let out_l = dbg!(truncate::<WORD_BITS>(out_s));
-                                let out_h = dbg!(
-                                    out_s & get_word_size_bit_mask_msb(WORD_BITS)
-                                );
-                                // assert_eq!(out_s, out_l.0.into());
-
-                                let a = i128::try_from(a).unwrap();
-                                let b = i128::try_from(b).unwrap();
-
-                                let a_shift = WORD_BITS < a as _;
-                                dbg!(a_shift);
-                                let a_power = if a_shift {
-                                    0
-                                } else {
-                                    2u64.pow(a.try_into().unwrap())
-                                        % 2u64.pow(WORD_BITS)
-                                };
-                                dbg!(a_power);
-
-                                let r = if a > WORD_BITS as _ {
-                                    0
-                                } else {
-                                    assert!(a >= 0);
-                                    WORD_BITS as i128 - a
-                                };
-                                dbg!(r);
-
-                                let a = WORD_BITS as i128 - a;
-                                eval_constraints::<WORD_BITS, Fp>(
-                                    a,
-                                    b,
-                                    out_h.try_into().unwrap(),
-                                    out_l.0.try_into().unwrap(),
-                                    a_shift,
-                                    a_power,
-                                    r.try_into().unwrap(),
-                                );
-
-                                // let c = (b >> a) & ((2u128.pow(WORD_BITS)) - 1);
-                                // // assert_eq!(c, c_m_h);
-                                // assert_eq!(c, c_t);
-
-                                // let d = Value::known(non_det_d::<WORD_BITS, Fp>(
-                                //     a, b, c,
-                                // ));
-
-                                // let d = Value::known(non_det_d::<WORD_BITS, Fp>(
-                                //     WORD_BITS as u128 - a,
-                                //     b,
-                                //     c,
-                                // ));
-
-                                region
-                                    .assign_advice(
-                                        || "c",
-                                        config.0.c,
-                                        0,
-                                        || Value::known(Fp::from_u128(out_h)),
+                                let (c, d_check) = {
+                                    let out = 2u128.pow(a.try_into().unwrap()) * b;
+                                    (
+                                        out & get_word_size_bit_mask_msb(WORD_BITS),
+                                        out & ((2u128.pow(WORD_BITS)) - 1),
                                     )
-                                    .unwrap();
+                                };
+
+                                // eval_constraints::<WORD_BITS, Fp>(
+                                //     a.try_into().unwrap(),
+                                //     b.try_into().unwrap(),
+                                //     c.try_into().unwrap(),
+                                //     d.try_into().unwrap(),
+                                // );
+                                // eval_constraints::<WORD_BITS, Fp>(
+                                //     a.try_into().unwrap(),
+                                //     b.try_into().unwrap(),
+                                //     c.try_into().unwrap(),
+                                //     d_check.try_into().unwrap(),
+                                // );
+                                assert_eq!(d, d_check);
+                                (
+                                    Fp::from_u128(b),
+                                    Fp::from_u128(c),
+                                    Fp::from_u128(d),
+                                )
                             } else {
-                                // shift left
+                                let b = self.word.unwrap().get_lower_128();
+                                let d = (b
+                                    << self.shift_bits.unwrap().get_lower_128())
+                                    & ((2u128.pow(WORD_BITS)) - 1);
 
-                                let d: u128 = truncate::<WORD_BITS>(
-                                    b << self.shift_bits.unwrap().get_lower_128(),
+                                let c = non_det_c::<WORD_BITS, Fp>(
+                                    a.try_into().unwrap(),
+                                    b.try_into().unwrap(),
+                                    d.try_into().unwrap(),
+                                );
+                                (Fp::from_u128(b), c, Fp::from_u128(d))
+                            };
+
+                            region
+                                .assign_advice(
+                                    || "b",
+                                    config.0.b,
+                                    0,
+                                    || Value::known(b),
                                 )
-                                .0
-                                .into();
-                                region
-                                    .assign_advice(
-                                        || "c",
-                                        config.0.c,
-                                        0,
-                                        || {
-                                            Value::known(non_det_c::<WORD_BITS, Fp>(
-                                                a.try_into().unwrap(),
-                                                b.try_into().unwrap(),
-                                                d.try_into().unwrap(),
-                                            ))
-                                        },
-                                    )
-                                    .unwrap();
-                            }
+                                .unwrap();
+
+                            region
+                                .assign_advice(
+                                    || "c",
+                                    config.0.c,
+                                    0,
+                                    || Value::known(c),
+                                )
+                                .unwrap();
+
+                            region
+                                .assign_advice(
+                                    || "d",
+                                    config.0.d,
+                                    0,
+                                    || Value::known(d),
+                                )
+                                .unwrap();
+
+                            config.0.assign_shift(
+                                &mut region,
+                                a,
+                                c.get_lower_128(),
+                                0,
+                            );
+                        };
+
+                        if SHIFT_RIGHT {
+                            let a = a.get_lower_128();
+                            let d = self.word.unwrap();
+                            region
+                                .assign_advice(
+                                    || "d",
+                                    config.0.d,
+                                    0,
+                                    || Value::known(d),
+                                )
+                                .unwrap();
+                            let d = d.get_lower_128();
+
+                            let b: u128 = truncate::<WORD_BITS>(
+                                d >> self.shift_bits.unwrap().get_lower_128(),
+                            )
+                            .0
+                            .try_into()
+                            .unwrap();
+
+                            let out = 2u128.pow(a.try_into().unwrap()) * b;
+                            let out_l = dbg!(truncate::<WORD_BITS>(out));
+                            let out_h =
+                                dbg!(out & get_word_size_bit_mask_msb(WORD_BITS));
+                            assert_eq!(u128::from(out_l.0), d);
+                            let c = out_h.try_into().unwrap();
+
+                            let a = i128::try_from(a).unwrap();
+                            // let d = i128::try_from(d).unwrap()
+
+                            let a_shift = WORD_BITS < a as _;
+                            dbg!(a_shift);
+                            let a_power = if a_shift {
+                                0
+                            } else {
+                                2u64.pow(a.try_into().unwrap()) % 2u64.pow(WORD_BITS)
+                            };
+                            dbg!(a_power);
+
+                            let r = if c == 0 { 0 } else { c - a - 1 };
+                            dbg!(r);
+
+                            let a = WORD_BITS as i128 - a;
+                            eval_constraints::<WORD_BITS, Fp>(
+                                a,
+                                b.try_into().unwrap(),
+                                c,
+                                d.try_into().unwrap(),
+                            );
+
+                            region
+                                .assign_advice(
+                                    || "b",
+                                    config.0.b,
+                                    0,
+                                    || Value::known(Fp::from_u128(b)),
+                                )
+                                .unwrap();
+
+                            region
+                                .assign_advice(
+                                    || "c",
+                                    config.0.c,
+                                    0,
+                                    || Value::known(Fp::from_u128(c.try_into().unwrap())),
+                                )
+                                .unwrap();
+
+                            region
+                                .assign_advice(
+                                    || "d",
+                                    config.0.d,
+                                    0,
+                                    || Value::known(Fp::from_u128(d)),
+                                )
+                                .unwrap();
+
+                            config.0.assign_shift(
+                                &mut region,
+                                a.try_into().unwrap(),
+                                c.try_into().unwrap(),
+                                0,
+                            );
                         }
+                        //         } else {
+                        //             // shift left
+
+                        //             let b = self.word.unwrap();
+                        //             region
+                        //                 .assign_advice(
+                        //                     || "b",
+                        //                     config.0.b,
+                        //                     0,
+                        //                     || Value::known(b),
+                        //                 )
+                        //                 .unwrap();
+
+                        //             let b = b.get_lower_128();
+                        //             let d: u128 = truncate::<WORD_BITS>(
+                        //                 b << self.shift_bits.unwrap().get_lower_128(),
+                        //             )
+                        //             .0
+                        //             .into();
+                        //             region
+                        //                 .assign_advice(
+                        //                     || "c",
+                        //                     config.0.c,
+                        //                     0,
+                        //                     || {
+                        //                         Value::known(non_det_c::<WORD_BITS, Fp>(
+                        //                             a.try_into().unwrap(),
+                        //                             b.try_into().unwrap(),
+                        //                             d.try_into().unwrap(),
+                        //                         ))
+                        //                     },
+                        //                 )
+                        //                 .unwrap();
+                        //         }
+                        //     }
+                        //     }
                     }
 
                     region
@@ -568,7 +672,7 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                             config.1,
                             0,
                             // if SHIFT_RIGHT { config.0.c } else { config.0.d },
-                            config.0.d,
+                            if SHIFT_RIGHT { config.0.b } else { config.0.d },
                             0,
                         )
                         .unwrap();

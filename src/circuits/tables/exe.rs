@@ -864,7 +864,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     let shift_bits = a.get(&step.regs);
                                     shift.assign_shift(
                                         &mut region,
-                                        shift_bits.0,
+                                        shift_bits.0.into(),
+                                        todo!(),
                                         offset,
                                     );
                                     flag4.assign_flag4(
@@ -878,7 +879,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     let shift_bits = a.get(&step.regs);
                                     shift.assign_shift(
                                         &mut region,
-                                        shift_bits.0,
+                                        shift_bits.0.into(),
+                                        todo!(),
                                         offset,
                                     );
 
