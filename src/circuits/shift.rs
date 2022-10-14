@@ -225,6 +225,11 @@ fn eval_constraints<const WORD_BITS: u32, F: FieldExt>(
     let flag = (b & 1) != 0;
     let right_shift = true;
 
+    eprintln!(
+        "a: {}, b: {}, c: {}, d:{}, flag: {}, right_shift: {}",
+        a, b, c, d, flag, right_shift
+    );
+
     let a_shift = a_shift as i128;
     let a_power = a_power as i128;
     let r = r as i128;
@@ -239,7 +244,7 @@ fn eval_constraints<const WORD_BITS: u32, F: FieldExt>(
     let shift = a_power * b - d - (2i128.pow(WORD_BITS) * c);
     eprintln!("SHIFT: {}", shift);
     eprintln!(
-        "SHIFT = {} * {} - {} - ({} * {})",
+        "SHIFT = a_power: {} * b: {} - d: {} - (2^W: {} * c:{})",
         a_power,
         b,
         d,
@@ -259,11 +264,11 @@ fn eval_constraints<const WORD_BITS: u32, F: FieldExt>(
     let lsb_b = b & 1;
 
     let flag4 = (flag as i128) - (b_flag * msb_b) - ((1 - b_flag) * lsb_b);
+    dbg!(flag4);
 
     assert_eq!(0, is_bool);
     assert_eq!(0, shift);
     assert_eq!(0, flag4);
-    assert_eq!(0, part);
 }
 
 fn f_from_i128<F: FieldExt>(n: i128) -> F {
@@ -439,12 +444,10 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
 
                                 eprintln!("{:#032b} >> {} = {:#032b}", d, a, d >> a);
 
-                                let b: u128 = truncate::<WORD_BITS>(
-                                    d >> self.shift_bits.unwrap().get_lower_128(),
-                                )
-                                .0
-                                .try_into()
-                                .unwrap();
+                                let b: u128 = truncate::<WORD_BITS>(d >> a)
+                                    .0
+                                    .try_into()
+                                    .unwrap();
 
                                 let a = i128::try_from(a).unwrap();
                                 // let d = i128::try_from(d).unwrap()
@@ -476,6 +479,8 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                                 .unwrap();
 
                                 let d: i128 = d.try_into().unwrap();
+                                // assert_eq!(d_check, d);
+
                                 dbg!(a);
                                 dbg!(b);
                                 dbg!(c);
@@ -490,7 +495,6 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                                 //     c * 2i128.pow(WORD_BITS) + d,
                                 //     out.try_into().unwrap()
                                 // );
-                                // assert_eq!(d_check, d);
 
                                 let r = if c == 0 { 0 } else { c - a - 1 };
                                 dbg!(r);
@@ -500,8 +504,8 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
                                     a,
                                     b.try_into().unwrap(),
                                     c,
-                                    // d.try_into().unwrap(),
-                                    d_check,
+                                    d.try_into().unwrap(),
+                                    // d_check,
                                     a_shift,
                                     a_power,
                                     r.try_into().unwrap(),
