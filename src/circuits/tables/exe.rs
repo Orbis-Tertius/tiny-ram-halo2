@@ -6,7 +6,8 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
+        Advice, Circuit, Column, ConstraintSystem, Constraints, Error, Expression,
+        Selector,
     },
     poly::Rotation,
 };
@@ -44,7 +45,10 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
+    /// Enabled for every row that may contain a line of the trace.
     table_max_len: Selector,
+    /// Enabled for every row that contains a line of the trace.
+    trace_len: Column<Advice>,
     /// This is redundant with 0 padded `time`.
     /// We need it to make the mock prover happy and not giving CellNotAssigned errors.
     /// https://github.com/zcash/halo2/issues/533#issuecomment-1097371369
@@ -98,6 +102,36 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
+    fn trace_len_gate<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        meta.create_gate("time/trace_len", |meta| {
+            let table_max_len = meta.query_selector(self.table_max_len);
+            let trace = meta.query_advice(self.trace_len, Rotation::cur());
+            let trace_next = meta.query_advice(self.trace_len, Rotation::next());
+
+            // This row and the next row must both have the same state
+            // (trace - trace_next)
+            
+            // Time is 1 indexed.
+            // On the first line trace must be 1.
+            // Therefore the first line is always part of the trace.
+            // (time - trace + 1)
+          
+            // When answer 
+            // 0 when trace is 0
+            // zero when inst is answer
+            // (trace * (inst - answer::OP_CODE))
+            
+            // 1
+
+            Constraints::with_selector(
+                table_max_len,
+                [
+                // trace_len increments
+                time_next - time - Expression::Constant(F::one())
+                ],
+            )
+        })
+    }
     fn pc_gate<F: FieldExt>(
         &self,
         meta: &mut ConstraintSystem<F>,
@@ -351,7 +385,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let value = meta.advice_column();
             let temp_var_selectors =
                 TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+
             let table_max_len = meta.complex_selector();
+            let trace_len = meta.advice_column();
             let exe_len = meta.complex_selector();
 
             let even_bits = EvenBitsTable::new(meta);
@@ -550,6 +586,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
             ExeConfig {
                 table_max_len,
+                trace_len,
                 exe_len,
                 time,
                 pc,
@@ -663,6 +700,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     ) -> Result<(), Error> {
         let ExeConfig {
             table_max_len,
+            trace_len,
             exe_len,
             time,
             pc,
@@ -690,8 +728,18 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             .assign_region(
                 || "Exe",
                 |mut region: Region<'_, F>| {
+                    // FIXME use maximum possible trace length.
                     for i in 0..trace.exe.len() {
                         table_max_len.enable(&mut region, i)?;
+                    }
+
+                    for i in 0..trace.exe.len() {
+                        region.assign_advice(
+                            || "",
+                            trace_len,
+                            i,
+                            || Value::known(F::one()),
+                        )?;
                     }
 
                     for i in 0..trace.exe.len() - 1 {

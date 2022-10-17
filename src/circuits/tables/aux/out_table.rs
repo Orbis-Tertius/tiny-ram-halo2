@@ -10,6 +10,7 @@ use halo2_proofs::{
 use super::out::{Out, OutPut};
 use crate::instructions::{opcode::OpCode, *};
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct CorrectOutConfig {
     opcode: Column<Advice>,
