@@ -6,7 +6,8 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{
-        Advice, Circuit, Column, ConstraintSystem, Error, Expression, Selector,
+        Advice, Circuit, Column, ConstraintSystem, Constraints, Error, Expression,
+        Selector,
     },
     poly::Rotation,
 };
@@ -18,7 +19,7 @@ use crate::{
         flag4::Flag4Config, logic::LogicConfig, modulo::ModConfig, prod::ProdConfig,
         shift::ShiftConfig, sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
-    instructions::{Instruction, Shl, Shr},
+    instructions::{opcode::OpCode, unit::Answer, Instruction, Shl, Shr},
     leak_once,
     trace::{RegName, Registers, Trace},
 };
@@ -27,6 +28,7 @@ use self::temp_vars::TempVars;
 
 use super::{
     aux::{
+        out_table::{self, CorrectOutConfig, OutTable},
         SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
         TempVarSelectorsRow,
     },
@@ -44,7 +46,12 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
+    /// A Selector that's enabled on only the first line of the Exe table
+    first_line: Selector,
+    /// Enabled for every row that may contain a line of the trace.
     table_max_len: Selector,
+    /// Enabled for every row that contains a line of the trace.
+    trace_len: Column<Advice>,
     /// This is redundant with 0 padded `time`.
     /// We need it to make the mock prover happy and not giving CellNotAssigned errors.
     /// https://github.com/zcash/halo2/issues/533#issuecomment-1097371369
@@ -95,9 +102,79 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     // Auxiliary entries used by mutually exclusive constraints.
     even_bits: EvenBitsTable<WORD_BITS>,
     pow_table: PowTable<WORD_BITS>,
+    out_table: OutTable,
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
+    /// The execution trace is a contiguous block of rows starting at the first row of the Exe table.
+    /// The execution trace is at least one row.
+    /// The last row of the execution trace must contain the instruction Answer.
+    ///
+    /// Rows of the Exe table have been set `table_max_len = 1`.
+    /// Rows of the execution trace have been set `trace_len = 1`.
+    /// If the trace is shorter than the Exe table's length,
+    /// the remaining rows must have been set `trace_len = 0`.
+    ///
+    /// We use three gates to enforce this.
+    ///
+    /// 1. `start_trace` gate:
+    ///
+    /// The first row of exe contains the first row of trace.
+    /// (start_trace * 1 - trace_len)
+    ///
+    /// 2. `contiguous_trace` gate:
+    ///
+    /// This row and the next row must both be included or excluded from the trace_len.
+    /// `let contiguous = (trace_len - trace_len_next)`
+    ///
+    /// Evaluates to 0 if row is part of the trace_len (trace_len = 1), and the instruction is `Answer`.
+    /// `let may_change = (R - (trace_len * R) + opcode - answer::OP_CODE)`
+    /// Where `R` is a constant greater than `Answer::OP_CODE / 2`.
+    /// Note that `R` definition relies on the fact that `Answer` has the highest opcode of any instruction.
+    ///
+    /// The whole `contiguous_trace` gate guaranties the trace or the padding continues on the next row of the Exe table.
+    /// Or the current line is part of the trace, and contains the instruction `Answer`.
+    /// `table_max_len * contiguous * may_change`
+    ///
+    /// Note that this gate does not enforce that a trace ends with the instruction `Answer`.
+    /// Nor does it enforce that row containing the instruction `Answer` is followed by padding.
+    /// The former can be enforced by checking that the last line of the Exe table contains `trace_len = 0`
+    /// The latter is enforced by including `trace_len_next` in the `Out` lookup.
+    ///
+    /// Without `may_change` the lookup is not sufficient to guarantee padding (rows with `trace_len = 0`)
+    /// cannot be followed by part of the trace (rows with `trace_len = 1`).
+    /// The `trace_len_next: table_max_len * trace_len * trace_len_next` looks up the default 0 when `trace_len = 0`.
+    /// So the sequence: answer, padding, arbitrary instruction, would be allowed.
+    // TODO enforce trace ends with `Answer 0`
+    fn trace_len_gates<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        meta.create_gate("start_trace", |meta| {
+            let one = Expression::Constant(F::one());
+
+            let first_line = meta.query_selector(self.first_line);
+
+            let trace_len = meta.query_advice(self.trace_len, Rotation::cur());
+
+            Constraints::with_selector(first_line, [(one - trace_len)])
+        });
+
+        meta.create_gate("contiguous_trace", |meta| {
+            let answer_opcode = Expression::Constant(F::from(Answer::OP_CODE));
+            // R could be anything `> answer::OP_CODE / 2`.
+            let r = Expression::Constant(F::from(u64::MAX));
+
+            let table_max_len = meta.query_selector(self.table_max_len);
+
+            let trace_len = meta.query_advice(self.trace_len, Rotation::cur());
+            let trace_len_next = meta.query_advice(self.trace_len, Rotation::next());
+
+            let opcode = meta.query_advice(self.opcode, Rotation::cur());
+
+            let contiguous = trace_len.clone() - trace_len_next;
+            let may_change = r.clone() - (trace_len * r) + opcode - answer_opcode;
+
+            Constraints::with_selector(table_max_len, [contiguous * may_change])
+        })
+    }
     fn pc_gate<F: FieldExt>(
         &self,
         meta: &mut ConstraintSystem<F>,
@@ -351,11 +428,23 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let value = meta.advice_column();
             let temp_var_selectors =
                 TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+
+            let first_line = meta.selector();
             let table_max_len = meta.complex_selector();
+            let trace_len = meta.advice_column();
             let exe_len = meta.complex_selector();
 
             let even_bits = EvenBitsTable::new(meta);
             let pow_table = PowTable::new(meta);
+            let out_table = OutTable::new(meta);
+            CorrectOutConfig::configure(
+                meta,
+                opcode,
+                temp_var_selectors.out,
+                trace_len,
+                table_max_len,
+                out_table,
+            );
 
             let mut meta = TrackColumns::new(meta);
 
@@ -549,7 +638,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             );
 
             ExeConfig {
+                first_line,
                 table_max_len,
+                trace_len,
                 exe_len,
                 time,
                 pc,
@@ -557,12 +648,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 immediate,
                 reg,
                 flag,
-                address,
-                value,
                 temp_vars,
                 temp_var_selectors,
-                even_bits,
-                pow_table,
+                address,
+                value,
                 logic,
                 ssum,
                 sprod,
@@ -571,6 +660,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 flag2,
                 flag3,
                 flag4,
+                even_bits,
+                pow_table,
+                out_table,
             }
         };
 
@@ -581,6 +673,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             config.pc,
             config.flag,
         );
+
+        config.trace_len_gates(meta);
 
         {
             let SelectiorsA {
@@ -662,7 +756,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         trace: &Trace<WORD_BITS, REG_COUNT>,
     ) -> Result<(), Error> {
         let ExeConfig {
+            first_line,
             table_max_len,
+            trace_len,
             exe_len,
             time,
             pc,
@@ -670,12 +766,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             immediate,
             reg,
             flag,
-            address,
-            value,
             temp_vars,
             temp_var_selectors,
-            even_bits: _,
-            pow_table: _,
+            address,
+            value,
             logic,
             ssum,
             sprod,
@@ -684,14 +778,29 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             flag2,
             flag3,
             flag4,
+            even_bits: _,
+            pow_table: _,
+            out_table: _,
         } = self.config;
 
         layouter
             .assign_region(
                 || "Exe",
                 |mut region: Region<'_, F>| {
+                    first_line.enable(&mut region, 0).unwrap();
+
+                    // FIXME use maximum possible trace length.
                     for i in 0..trace.exe.len() {
                         table_max_len.enable(&mut region, i)?;
+                    }
+
+                    for i in 0..trace.exe.len() {
+                        region.assign_advice(
+                            || "",
+                            trace_len,
+                            i,
+                            || Value::known(F::one()),
+                        )?;
                     }
 
                     for i in 0..trace.exe.len() - 1 {
@@ -919,6 +1028,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         }
                     }
 
+                    region
+                        .assign_advice(
+                            || "",
+                            trace_len,
+                            trace.exe.len(),
+                            || Value::known(F::zero()),
+                        )
+                        .unwrap();
                     // TODO explicitly assign the rest of time as 0.
                     region
                         .assign_advice(
@@ -972,6 +1089,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         exe_chip
             .config
             .pow_table
+            .alloc_table(&mut layouter)
+            .unwrap();
+
+        exe_chip
+            .config
+            .out_table
             .alloc_table(&mut layouter)
             .unwrap();
 
@@ -1307,12 +1430,12 @@ mod tests {
     fn mock_prover_test<const WORD_BITS: u32, const REG_COUNT: usize>(
         trace: Trace<WORD_BITS, REG_COUNT>,
     ) {
-        let k = 1 + WORD_BITS / 2;
+        let k = 2 + WORD_BITS / 2;
         let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace: Some(trace) };
 
         // Given the correct public input, our circuit will verify.
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        prover.assert_satisfied();
     }
 
     #[test]

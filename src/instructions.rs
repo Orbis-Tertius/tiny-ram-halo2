@@ -444,3 +444,59 @@ pub struct StoreW<R, A> {
 pub struct Answer<A> {
     pub a: A,
 }
+
+/// Conveniance aliases for Instructions type with unit type Arguments.
+pub mod unit {
+
+    pub type And = super::And<(), ()>;
+
+    pub type Or = super::Or<(), ()>;
+
+    pub type Xor = super::Xor<(), ()>;
+
+    pub type Not = super::Not<(), ()>;
+
+    pub type Add = super::Add<(), ()>;
+
+    pub type Sub = super::Sub<(), ()>;
+
+    pub type Mull = super::Mull<(), ()>;
+
+    pub type UMulh = super::UMulh<(), ()>;
+
+    pub type SMulh = super::SMulh<(), ()>;
+
+    pub type UDiv = super::UDiv<(), ()>;
+
+    pub type UMod = super::UMod<(), ()>;
+
+    pub type Shl = super::Shl<(), ()>;
+
+    pub type Shr = super::Shr<(), ()>;
+
+    pub type Cmpe = super::Cmpe<(), ()>;
+
+    pub type Cmpa = super::Cmpa<(), ()>;
+
+    pub type Cmpae = super::Cmpae<(), ()>;
+
+    pub type Cmpg = super::Cmpg<(), ()>;
+
+    pub type Cmpge = super::Cmpge<(), ()>;
+
+    pub type Mov = super::Mov<(), ()>;
+
+    pub type CMov = super::CMov<(), ()>;
+
+    pub type Jmp = super::Jmp<()>;
+
+    pub type CJmp = super::CJmp<()>;
+
+    pub type CnJmp = super::CnJmp<()>;
+
+    pub type LoadW = super::LoadW<(), ()>;
+
+    pub type StoreW = super::StoreW<(), ()>;
+
+    pub type Answer = super::Answer<()>;
+}
