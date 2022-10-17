@@ -114,14 +114,28 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             // Time is 1 indexed.
             // On the first line trace must be 1.
             // Therefore the first line is always part of the trace.
-            // (time - trace + 1)
+            // time +
+            //
+            // f(1) = 1
+            // f(x) = x
           
             // When answer 
             // 0 when trace is 0
             // zero when inst is answer
             // (trace * (inst - answer::OP_CODE))
+
+
+            // let ans = (inst - answer::OP_CODE)
+
+            // (1 - (trace + ans))
+
+            // let res = (trace - trace_next) * (1 - (trace + ans))
             
-            // 1
+            // f
+            // f * (trace - f)
+            //
+            // res
+            
 
             Constraints::with_selector(
                 table_max_len,
