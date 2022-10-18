@@ -19,7 +19,7 @@ use crate::{
         flag4::Flag4Config, logic::LogicConfig, modulo::ModConfig, prod::ProdConfig,
         shift::ShiftConfig, sprod::SProdConfig, ssum::SSumConfig, sum::SumConfig,
     },
-    instructions::{Instruction, Shl, Shr},
+    instructions::{opcode::OpCode, unit::Answer, Instruction, Shl, Shr},
     leak_once,
     trace::{RegName, Registers, Trace},
 };
@@ -45,6 +45,8 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 /// `u32`, and `usize`, were picked for convenience.
 #[derive(Debug, Clone)]
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
+    /// A Selector that's enabled on only the first line of the Exe table
+    first_line: Selector,
     /// Enabled for every row that may contain a line of the trace.
     table_max_len: Selector,
     /// Enabled for every row that contains a line of the trace.
@@ -102,48 +104,82 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
-    fn trace_len_gate<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
-        meta.create_gate("time/trace_len", |meta| {
+    /// The execution trace is a contiguous block of rows starting at the first row of the Exe table.
+    /// The execution trace is at least one row.
+    /// The last row of the execution trace must contain the instruction Answer.
+    ///
+    /// Rows of the Exe table have been set `table_max_len = 1`.
+    /// Rows of the execution trace have been set `trace_len = 1`.
+    /// If the trace is shorter than the Exe table's length,
+    /// the remaining rows must have been set `trace_len = 0`.
+    ///
+    /// We use three gates to enforce this.
+    ///
+    /// 1. `start_trace` gate:
+    ///
+    /// The first row of exe contains the first row of trace.
+    /// (start_trace * 1 - trace_len)
+    ///
+    /// 2. `contiguous_trace` gate:
+    ///
+    /// This row and the next row must both be included or excluded from the trace_len.
+    /// `let contiguous = (trace_len - trace_len_next)`
+    ///
+    /// Evaluates to 0 if row is part of the trace_len (trace_len = 1), and the instruction is `Answer`.
+    /// `let may_change = (R - (trace_len * R) + inst - answer::OP_CODE)`
+    /// Where `R` is a constant greater than `Answer::OP_CODE / 2`.
+    /// Note that `R` definition relies on the fact that `Answer` has the highest opcode of any instruction.
+    ///
+    /// A row containing the instruction `Answer` must be followed by a padding row (`trace_len_next = 0`).
+    /// `let must_change = `(may_change + trace_len_next)`
+    ///
+    /// table_max_len * ((may_change + trace_len_next) - (may_change * trace_len_next))
+    ///
+    /// may_change = 0, trace_len_next = 0 == 0
+    /// may_change = N, trace_len_next = 0 == N
+    ///
+    /// table_max_len * ((may_change + trace_len_next) - (may_change * (1 - trace_len_next)))
+    /// may_change = 0, trace_len_next = 0 == 0
+    /// may_change = N, trace_len_next = 0 == 0
+    /// may_change = 0, trace_len_next = 1 == 1
+    /// 
+    ///
+    /// The whole `contiguous_trace` gate guaranties the trace or the padding continues on the next row of the Exe table.
+    /// Or the current line is part of the trace, contains the instruction `Answer`,
+    /// and is followed by a row of padding.
+    /// `table_max_len * contiguous * must_change`
+    ///
+    /// Note that this gate does not enforce that a trace ends with the instruction `Answer`.
+    /// This can be enforced by checking that the last line of the Exe table contains `trace_len = 0`
+    // TODO enforce trace ends with `Answer 0`
+    fn trace_len_gates<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        meta.create_gate("start_trace", |meta| {
+            let one = Expression::Constant(F::one());
+
+            let first_line = meta.query_selector(self.first_line);
+
+            let trace_len = meta.query_advice(self.trace_len, Rotation::cur());
+
+            Constraints::with_selector(first_line, [(one - trace_len)])
+        });
+
+        meta.create_gate("contiguous_trace", |meta| {
+            let answer_opcode = Expression::Constant(F::from(Answer::OP_CODE));
+            // R could be anything `> answer::OP_CODE / 2`.
+            let r = Expression::Constant(F::from(u64::MAX));
+
             let table_max_len = meta.query_selector(self.table_max_len);
-            let trace = meta.query_advice(self.trace_len, Rotation::cur());
-            let trace_next = meta.query_advice(self.trace_len, Rotation::next());
 
-            // This row and the next row must both have the same state
-            // (trace - trace_next)
-            
-            // Time is 1 indexed.
-            // On the first line trace must be 1.
-            // Therefore the first line is always part of the trace.
-            // time +
-            //
-            // f(1) = 1
-            // f(x) = x
-          
-            // When answer 
-            // 0 when trace is 0
-            // zero when inst is answer
-            // (trace * (inst - answer::OP_CODE))
+            let trace_len = meta.query_advice(self.trace_len, Rotation::cur());
+            let trace_len_next = meta.query_advice(self.trace_len, Rotation::next());
 
+            let inst = meta.query_advice(self.trace_len, Rotation::cur());
 
-            // let ans = (inst - answer::OP_CODE)
+            let contiguous = trace_len.clone() - trace_len_next;
+            let may_change = ((trace_len * r.clone()) + inst - answer_opcode);
+            let must_change = (r.clone() - may_change);
 
-            // (1 - (trace + ans))
-
-            // let res = (trace - trace_next) * (1 - (trace + ans))
-            
-            // f
-            // f * (trace - f)
-            //
-            // res
-            
-
-            Constraints::with_selector(
-                table_max_len,
-                [
-                // trace_len increments
-                time_next - time - Expression::Constant(F::one())
-                ],
-            )
+            Constraints::with_selector(table_max_len, [contiguous * must_change])
         })
     }
     fn pc_gate<F: FieldExt>(
@@ -400,6 +436,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             let temp_var_selectors =
                 TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
 
+            let first_line = meta.selector();
             let table_max_len = meta.complex_selector();
             let trace_len = meta.advice_column();
             let exe_len = meta.complex_selector();
@@ -599,6 +636,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             );
 
             ExeConfig {
+                first_line,
                 table_max_len,
                 trace_len,
                 exe_len,
@@ -632,6 +670,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             config.pc,
             config.flag,
         );
+
+        config.trace_len_gates(meta);
 
         {
             let SelectiorsA {
@@ -713,6 +753,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         trace: &Trace<WORD_BITS, REG_COUNT>,
     ) -> Result<(), Error> {
         let ExeConfig {
+            first_line,
             table_max_len,
             trace_len,
             exe_len,
@@ -742,6 +783,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             .assign_region(
                 || "Exe",
                 |mut region: Region<'_, F>| {
+                    first_line.enable(&mut region, 0).unwrap();
+
                     // FIXME use maximum possible trace length.
                     for i in 0..trace.exe.len() {
                         table_max_len.enable(&mut region, i)?;
@@ -1374,7 +1417,7 @@ mod tests {
 
         // Given the correct public input, our circuit will verify.
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
-        assert_eq!(prover.verify(), Ok(()));
+        prover.assert_satisfied();
     }
 
     #[test]
