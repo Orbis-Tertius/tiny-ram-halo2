@@ -130,27 +130,14 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     /// Where `R` is a constant greater than `Answer::OP_CODE / 2`.
     /// Note that `R` definition relies on the fact that `Answer` has the highest opcode of any instruction.
     ///
-    /// A row containing the instruction `Answer` must be followed by a padding row (`trace_len_next = 0`).
-    /// `let must_change = `(may_change + trace_len_next)`
-    ///
-    /// table_max_len * ((may_change + trace_len_next) - (may_change * trace_len_next))
-    ///
-    /// may_change = 0, trace_len_next = 0 == 0
-    /// may_change = N, trace_len_next = 0 == N
-    ///
-    /// table_max_len * ((may_change + trace_len_next) - (may_change * (1 - trace_len_next)))
-    /// may_change = 0, trace_len_next = 0 == 0
-    /// may_change = N, trace_len_next = 0 == 0
-    /// may_change = 0, trace_len_next = 1 == 1
-    /// 
-    ///
     /// The whole `contiguous_trace` gate guaranties the trace or the padding continues on the next row of the Exe table.
-    /// Or the current line is part of the trace, contains the instruction `Answer`,
-    /// and is followed by a row of padding.
+    /// Or the current line is part of the trace, and contains the instruction `Answer`.
     /// `table_max_len * contiguous * must_change`
     ///
     /// Note that this gate does not enforce that a trace ends with the instruction `Answer`.
-    /// This can be enforced by checking that the last line of the Exe table contains `trace_len = 0`
+    /// Nor does it enforce that row containing the instruction `Answer` is followed by padding.
+    /// The former can be enforced by checking that the last line of the Exe table contains `trace_len = 0`
+    /// The latter is enforced by including `trace_len_next` in the `Out` lookup.
     // TODO enforce trace ends with `Answer 0`
     fn trace_len_gates<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
         meta.create_gate("start_trace", |meta| {
