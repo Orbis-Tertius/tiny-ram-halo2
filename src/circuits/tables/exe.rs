@@ -7,7 +7,7 @@ use halo2_proofs::{
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Constraints, Error, Expression,
-        Selector,
+        Fixed, Selector,
     },
     poly::Rotation,
 };
@@ -60,7 +60,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     exe_len: Selector,
 
     /// Instruction count
-    time: Column<Advice>,
+    time: Column<Fixed>,
     /// Program count
     pc: Column<Advice>,
     /// `Exe_inst` in the paper.
@@ -106,6 +106,11 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
 }
 
 impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUNT> {
+    /// The length of the Exe table is the same as the even bits table.
+    ///
+    /// The maximum trace length is `TABLE_LEN - 1`.
+    /// The last row of the table must be padding to prove the trace ended with `Answer`.
+    const TABLE_LEN: usize = 2usize.pow(WORD_BITS / 2);
     /// The execution trace is a contiguous block of rows starting at the first row of the Exe table.
     /// The execution trace is at least one row.
     /// The last row of the execution trace must contain the instruction Answer.
@@ -187,9 +192,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let pc = meta.query_advice(self.pc, Rotation::cur());
             let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let exe_len = meta.query_selector(self.exe_len);
 
-            vec![table_max_len * sa_pc_next * (pc - t_var)]
+            vec![exe_len * sa_pc_next * (pc - t_var)]
         });
     }
 
@@ -232,10 +237,11 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 // We disable this gate on the last row of the Exe trace.
                 // This is fine since the last row must contain Answer 0.
                 // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
-                let time_next = meta.query_advice(self.time, Rotation::next());
+                let in_trace_next =
+                    meta.query_advice(self.trace_len, Rotation::next());
                 let exe_len = meta.query_selector(self.exe_len);
 
-                vec![exe_len * time_next * sa_pc_next * (pc_next - t_var)]
+                vec![exe_len * in_trace_next * sa_pc_next * (pc_next - t_var)]
             },
         );
     }
@@ -280,10 +286,11 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                         .query_advice(self.reg[RegName(i as _)], Rotation::next());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                    let time_next = meta.query_advice(self.time, Rotation::next());
+                    let in_trace_next =
+                        meta.query_advice(self.trace_len, Rotation::next());
                     let exe_len = meta.query_selector(self.exe_len);
 
-                    vec![exe_len * time_next * s_reg * (reg_next - t_var_a)]
+                    vec![exe_len * in_trace_next * s_reg * (reg_next - t_var_a)]
                 },
             );
         }
@@ -486,7 +493,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     fn configure_instructions(
         meta: &mut ConstraintSystem<F>,
     ) -> ExeConfig<WORD_BITS, REG_COUNT> {
-        let time = meta.advice_column();
+        let time = meta.fixed_column();
 
         let pc = meta.advice_column();
 
@@ -504,8 +511,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let first_line = meta.selector();
         let table_max_len = meta.complex_selector();
-        let trace_len = meta.advice_column();
         let exe_len = meta.complex_selector();
+        let trace_len = meta.advice_column();
 
         let even_bits = EvenBitsTable::new(meta);
         let pow_table = PowTable::new(meta);
@@ -795,22 +802,36 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 |mut region: Region<'_, F>| {
                     first_line.enable(&mut region, 0).unwrap();
 
-                    // FIXME use maximum possible trace length.
-                    for i in 0..trace.exe.len() {
-                        table_max_len.enable(&mut region, i)?;
+                    // FIXME Define the extent of the Exe table.
+                    // for offset in 0..ExeConfig::<WORD_BITS, REG_COUNT>::TABLE_LEN {
+                    for offset in 0..trace.exe.len() {
+                        // Time is 1 indexed.
+                        // TODO consider making time 0 indexed
+                        region
+                            .assign_fixed(
+                                || format!("time: {}", offset + 1),
+                                time,
+                                offset,
+                                || Value::known(F::from(offset as u64 + 1)),
+                            )
+                            .unwrap();
+
+                        table_max_len.enable(&mut region, offset)?;
                     }
 
-                    for i in 0..trace.exe.len() {
+                    // TODO remove once the mock prover is improved
+                    for i in 0..trace.exe.len() - 1 {
+                        exe_len.enable(&mut region, i)?;
+                    }
+
+                    // Define the extent of the trace within the Exe table.
+                    for offset in 0..trace.exe.len() {
                         region.assign_advice(
                             || "",
                             trace_len,
-                            i,
+                            offset,
                             || Value::known(F::one()),
                         )?;
-                    }
-
-                    for i in 0..trace.exe.len() - 1 {
-                        exe_len.enable(&mut region, i)?;
                     }
 
                     for (offset, step) in trace.exe.iter().enumerate() {
@@ -831,15 +852,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 )
                                 .unwrap();
                         }
-
-                        region
-                            .assign_advice(
-                                || format!("time: {}", step.time.0),
-                                time,
-                                offset,
-                                || Value::known(F::from(step.time.0 as u64)),
-                            )
-                            .unwrap();
 
                         region
                             .assign_advice(
@@ -1038,15 +1050,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         .assign_advice(
                             || "",
                             trace_len,
-                            trace.exe.len(),
-                            || Value::known(F::zero()),
-                        )
-                        .unwrap();
-                    // TODO explicitly assign the rest of time as 0.
-                    region
-                        .assign_advice(
-                            || format!("Terminating time: {}", 0),
-                            time,
                             trace.exe.len(),
                             || Value::known(F::zero()),
                         )
