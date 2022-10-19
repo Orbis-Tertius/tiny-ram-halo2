@@ -28,8 +28,8 @@ use self::temp_vars::TempVars;
 
 use super::{
     aux::{
-        out_table::{self, CorrectOutConfig, OutTable},
-        SelectiorsA, SelectiorsB, SelectiorsC, SelectiorsD, TempVarSelectors,
+        out_table::{CorrectOutConfig, OutTable},
+        SelectorsA, SelectorsB, SelectorsC, SelectorsD, TempVarSelectors,
         TempVarSelectorsRow,
     },
     even_bits::{EvenBitsConfig, EvenBitsTable},
@@ -384,6 +384,78 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             },
         );
     }
+
+    fn configure_selectors_a<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        let SelectorsA {
+            pc_next,
+            reg,
+            reg_next,
+            a,
+            v_addr,
+            non_det: _,
+        } = self.temp_var_selectors.a;
+
+        self.pc_next_gate(meta, pc_next, self.temp_vars.a.word, "a");
+        self.reg_gate(meta, reg, self.temp_vars.a.word, "a");
+        self.reg_next_gate(meta, reg_next, self.temp_vars.a.word, "a");
+        self.immediate_gate(meta, a, self.temp_vars.a.word, "a");
+        self.vaddr_gate(meta, v_addr, self.temp_vars.a.word, "a");
+    }
+
+    fn configure_selectors_b<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        let SelectorsB {
+            pc,
+            pc_next,
+            pc_plus_one,
+            reg,
+            reg_next,
+            a,
+            non_det: _,
+            max_word,
+        } = self.temp_var_selectors.b;
+
+        self.pc_gate(meta, pc, self.temp_vars.b.word, "b");
+        self.pc_next_gate(meta, pc_next, self.temp_vars.b.word, "b");
+        self.pc_gate_plus_one(meta, pc_plus_one, self.temp_vars.b.word, "b");
+        self.reg_gate(meta, reg, self.temp_vars.b.word, "b");
+        self.reg_next_gate(meta, reg_next, self.temp_vars.b.word, "b");
+        self.immediate_gate(meta, a, self.temp_vars.b.word, "b");
+        self.max_word_gate(meta, max_word, self.temp_vars.b.word, "b");
+    }
+
+    fn configure_selectors_c<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        let SelectorsC {
+            reg,
+            reg_next,
+            a,
+            non_det: _,
+            zero,
+        } = self.temp_var_selectors.c;
+
+        self.reg_gate(meta, reg, self.temp_vars.c.word, "c");
+        self.reg_next_gate(meta, reg_next, self.temp_vars.c.word, "c");
+        self.immediate_gate(meta, a, self.temp_vars.c.word, "c");
+        self.zero_gate(meta, zero, self.temp_vars.c.word, "c");
+    }
+
+    fn configure_selectors_d<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
+        let SelectorsD {
+            pc,
+            reg,
+            reg_next,
+            a,
+            non_det: _,
+            zero,
+            one,
+        } = self.temp_var_selectors.d;
+
+        self.pc_gate(meta, pc, self.temp_vars.d.word, "d");
+        self.reg_gate(meta, reg, self.temp_vars.d.word, "d");
+        self.reg_next_gate(meta, reg_next, self.temp_vars.d.word, "d");
+        self.immediate_gate(meta, a, self.temp_vars.d.word, "d");
+        self.zero_gate(meta, zero, self.temp_vars.d.word, "d");
+        self.one_gate(meta, one, self.temp_vars.d.word, "d");
+    }
 }
 
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
@@ -411,260 +483,260 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
-        let config = {
-            let time = meta.advice_column();
+    fn configure_instructions(
+        meta: &mut ConstraintSystem<F>,
+    ) -> ExeConfig<WORD_BITS, REG_COUNT> {
+        let time = meta.advice_column();
 
-            let pc = meta.advice_column();
+        let pc = meta.advice_column();
 
-            let opcode = meta.advice_column();
+        let opcode = meta.advice_column();
 
-            let immediate = meta.advice_column();
+        let immediate = meta.advice_column();
 
-            let reg = Registers::init_with(|| meta.advice_column());
+        let reg = Registers::init_with(|| meta.advice_column());
 
-            let flag = meta.advice_column();
-            let address = meta.advice_column();
-            let value = meta.advice_column();
-            let temp_var_selectors =
-                TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+        let flag = meta.advice_column();
+        let address = meta.advice_column();
+        let value = meta.advice_column();
+        let temp_var_selectors =
+            TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
 
-            let first_line = meta.selector();
-            let table_max_len = meta.complex_selector();
-            let trace_len = meta.advice_column();
-            let exe_len = meta.complex_selector();
+        let first_line = meta.selector();
+        let table_max_len = meta.complex_selector();
+        let trace_len = meta.advice_column();
+        let exe_len = meta.complex_selector();
 
-            let even_bits = EvenBitsTable::new(meta);
-            let pow_table = PowTable::new(meta);
-            let out_table = OutTable::new(meta);
-            CorrectOutConfig::configure(
-                meta,
-                opcode,
-                temp_var_selectors.out,
-                trace_len,
-                table_max_len,
-                out_table,
-            );
+        let even_bits = EvenBitsTable::new(meta);
+        let pow_table = PowTable::new(meta);
+        let out_table = OutTable::new(meta);
+        CorrectOutConfig::configure(
+            meta,
+            opcode,
+            temp_var_selectors.out,
+            trace_len,
+            table_max_len,
+            out_table,
+        );
 
-            let mut meta = TrackColumns::new(meta);
+        let mut meta = TrackColumns::new(meta);
 
-            let temp_vars = TempVars::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors,
-                even_bits,
-            );
+        let temp_vars =
+            TempVars::configure(&mut meta, exe_len, temp_var_selectors, even_bits);
 
-            Flag1Config::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.flag1,
-                temp_vars.c.word,
-                flag,
-            );
+        Flag1Config::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.flag1,
+            temp_vars.c.word,
+            flag,
+        );
 
-            let a_flag = meta.new_column();
-            let flag2 = Flag2Config::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.flag2,
-                temp_vars.c.word,
-                flag,
-                a_flag,
-            );
+        let a_flag = meta.new_column();
+        let flag2 = Flag2Config::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.flag2,
+            temp_vars.c.word,
+            flag,
+            a_flag,
+        );
 
-            let flag3_r = meta.new_column();
-            let r_decompose = EvenBitsConfig::configure(
-                &mut meta,
-                flag3_r,
-                &[temp_var_selectors.out.flag3, temp_var_selectors.out.shift],
-                exe_len,
-                even_bits,
-            );
-            let flag3 = Flag3Config::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.flag3,
-                temp_vars.a.word,
-                temp_vars.b.word,
-                temp_vars.c.word,
-                flag,
-                r_decompose,
-            );
+        let flag3_r = meta.new_column();
+        let r_decompose = EvenBitsConfig::configure(
+            &mut meta,
+            flag3_r,
+            &[temp_var_selectors.out.flag3, temp_var_selectors.out.shift],
+            exe_len,
+            even_bits,
+        );
+        let flag3 = Flag3Config::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.flag3,
+            temp_vars.a.word,
+            temp_vars.b.word,
+            temp_vars.c.word,
+            flag,
+            r_decompose,
+        );
 
-            SumConfig::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.sum,
-                temp_vars.a.word,
-                temp_vars.b.word,
-                temp_vars.c.word,
-                temp_vars.d.word,
-                flag,
-            );
+        SumConfig::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.sum,
+            temp_vars.a.word,
+            temp_vars.b.word,
+            temp_vars.c.word,
+            temp_vars.d.word,
+            flag,
+        );
 
-            ModConfig::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.mod_,
-                temp_vars.a.word,
-                temp_vars.b.word,
-                temp_vars.c.word,
-                temp_vars.d.word,
-                flag,
-            );
+        ModConfig::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.mod_,
+            temp_vars.a.word,
+            temp_vars.b.word,
+            temp_vars.c.word,
+            temp_vars.d.word,
+            flag,
+        );
 
-            let a_decomp = EvenBitsConfig::configure(
-                &mut meta,
-                temp_vars.a.word,
-                // The even_bits decomposition of `a` should be enabled anytime signed `a` is.
-                &[
-                    temp_var_selectors.out.and,
-                    temp_var_selectors.out.xor,
-                    temp_var_selectors.out.ssum,
-                ],
-                exe_len,
-                even_bits,
-            );
-
-            let logic = LogicConfig::configure(
-                &mut meta,
-                even_bits,
-                table_max_len,
+        let a_decomp = EvenBitsConfig::configure(
+            &mut meta,
+            temp_vars.a.word,
+            // The even_bits decomposition of `a` should be enabled anytime signed `a` is.
+            &[
                 temp_var_selectors.out.and,
                 temp_var_selectors.out.xor,
-                temp_var_selectors.out.or,
-                a_decomp,
-                temp_vars.b.word,
-                temp_vars.c.word,
-            );
-
-            ProdConfig::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.prod,
-                temp_vars.a.word,
-                temp_vars.b.word,
-                temp_vars.c.word,
-                temp_vars.d.word,
-            );
-
-            let signed_a = SignedConfig::configure(
-                &mut meta,
-                exe_len,
-                &[temp_var_selectors.out.ssum],
-                logic.a,
-                even_bits,
-            );
-
-            let b_decomp = EvenBitsConfig::configure(
-                &mut meta,
-                temp_vars.b.word,
-                &[temp_var_selectors.out.sprod],
-                exe_len,
-                even_bits,
-            );
-
-            let signed_b = SignedConfig::configure(
-                &mut meta,
-                exe_len,
-                &[temp_var_selectors.out.sprod],
-                b_decomp,
-                even_bits,
-            );
-
-            let c_decomp = EvenBitsConfig::configure(
-                &mut meta,
-                temp_vars.c.word,
-                &[temp_var_selectors.out.ssum],
-                exe_len,
-                even_bits,
-            );
-            let signed_c = SignedConfig::configure(
-                &mut meta,
-                exe_len,
-                &[temp_var_selectors.out.ssum],
-                c_decomp,
-                even_bits,
-            );
-
-            let ssum = SSumConfig::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
                 temp_var_selectors.out.ssum,
-                signed_a,
-                temp_vars.b.word,
-                signed_c,
-                temp_vars.d.word,
-                flag,
-            );
+            ],
+            exe_len,
+            even_bits,
+        );
 
-            let sprod = SProdConfig::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.sprod,
-                signed_a,
-                signed_b,
-                signed_c,
-                temp_vars.d.word,
-            );
+        let logic = LogicConfig::configure(
+            &mut meta,
+            even_bits,
+            table_max_len,
+            temp_var_selectors.out.and,
+            temp_var_selectors.out.xor,
+            temp_var_selectors.out.or,
+            a_decomp,
+            temp_vars.b.word,
+            temp_vars.c.word,
+        );
 
-            let a_shift = meta.new_column();
-            let a_power = meta.new_column();
-            let shift = ShiftConfig::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.shift,
-                temp_vars.a.word,
-                temp_vars.b.word,
-                temp_vars.c.word,
-                temp_vars.d.word,
-                a_shift,
-                a_power,
-                r_decompose,
-                pow_table,
-            );
+        ProdConfig::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.prod,
+            temp_vars.a.word,
+            temp_vars.b.word,
+            temp_vars.c.word,
+            temp_vars.d.word,
+        );
 
-            let lsb_b = meta.new_column();
-            let b_flag = meta.new_column();
-            let flag4 = Flag4Config::<WORD_BITS>::configure(
-                &mut meta,
-                exe_len,
-                temp_var_selectors.out.flag4,
-                signed_b,
-                lsb_b,
-                b_flag,
-                flag,
-            );
+        let signed_a = SignedConfig::configure(
+            &mut meta,
+            exe_len,
+            &[temp_var_selectors.out.ssum],
+            logic.a,
+            even_bits,
+        );
 
-            ExeConfig {
-                first_line,
-                table_max_len,
-                trace_len,
-                exe_len,
-                time,
-                pc,
-                opcode,
-                immediate,
-                reg,
-                flag,
-                temp_vars,
-                temp_var_selectors,
-                address,
-                value,
-                logic,
-                ssum,
-                sprod,
-                shift,
-                intermediate: meta.1,
-                flag2,
-                flag3,
-                flag4,
-                even_bits,
-                pow_table,
-                out_table,
-            }
-        };
+        let b_decomp = EvenBitsConfig::configure(
+            &mut meta,
+            temp_vars.b.word,
+            &[temp_var_selectors.out.sprod],
+            exe_len,
+            even_bits,
+        );
+
+        let signed_b = SignedConfig::configure(
+            &mut meta,
+            exe_len,
+            &[temp_var_selectors.out.sprod],
+            b_decomp,
+            even_bits,
+        );
+
+        let c_decomp = EvenBitsConfig::configure(
+            &mut meta,
+            temp_vars.c.word,
+            &[temp_var_selectors.out.ssum],
+            exe_len,
+            even_bits,
+        );
+        let signed_c = SignedConfig::configure(
+            &mut meta,
+            exe_len,
+            &[temp_var_selectors.out.ssum],
+            c_decomp,
+            even_bits,
+        );
+
+        let ssum = SSumConfig::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.ssum,
+            signed_a,
+            temp_vars.b.word,
+            signed_c,
+            temp_vars.d.word,
+            flag,
+        );
+
+        let sprod = SProdConfig::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.sprod,
+            signed_a,
+            signed_b,
+            signed_c,
+            temp_vars.d.word,
+        );
+
+        let a_shift = meta.new_column();
+        let a_power = meta.new_column();
+        let shift = ShiftConfig::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.shift,
+            temp_vars.a.word,
+            temp_vars.b.word,
+            temp_vars.c.word,
+            temp_vars.d.word,
+            a_shift,
+            a_power,
+            r_decompose,
+            pow_table,
+        );
+
+        let lsb_b = meta.new_column();
+        let b_flag = meta.new_column();
+        let flag4 = Flag4Config::<WORD_BITS>::configure(
+            &mut meta,
+            exe_len,
+            temp_var_selectors.out.flag4,
+            signed_b,
+            lsb_b,
+            b_flag,
+            flag,
+        );
+
+        ExeConfig {
+            first_line,
+            table_max_len,
+            trace_len,
+            exe_len,
+            time,
+            pc,
+            opcode,
+            immediate,
+            reg,
+            flag,
+            temp_vars,
+            temp_var_selectors,
+            address,
+            value,
+            logic,
+            ssum,
+            sprod,
+            shift,
+            intermediate: meta.1,
+            flag2,
+            flag3,
+            flag4,
+            even_bits,
+            pow_table,
+            out_table,
+        }
+    }
+
+    fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
+        let config = Self::configure_instructions(meta);
 
         config.temp_var_selectors.ch.unchanged_gate(
             meta,
@@ -676,77 +748,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         config.trace_len_gates(meta);
 
-        {
-            let SelectiorsA {
-                pc_next,
-                reg,
-                reg_next,
-                a,
-                v_addr,
-                non_det: _,
-            } = config.temp_var_selectors.a;
+        config.configure_selectors_a(meta);
+        config.configure_selectors_b(meta);
+        config.configure_selectors_c(meta);
+        config.configure_selectors_d(meta);
 
-            config.pc_next_gate(meta, pc_next, config.temp_vars.a.word, "a");
-            config.reg_gate(meta, reg, config.temp_vars.a.word, "a");
-            config.reg_next_gate(meta, reg_next, config.temp_vars.a.word, "a");
-            config.immediate_gate(meta, a, config.temp_vars.a.word, "a");
-            config.vaddr_gate(meta, v_addr, config.temp_vars.a.word, "a");
-        }
-
-        {
-            let SelectiorsB {
-                pc,
-                pc_next,
-                pc_plus_one,
-                reg,
-                reg_next,
-                a,
-                non_det: _,
-                max_word,
-            } = config.temp_var_selectors.b;
-
-            config.pc_gate(meta, pc, config.temp_vars.b.word, "b");
-            config.pc_next_gate(meta, pc_next, config.temp_vars.b.word, "b");
-            config.pc_gate_plus_one(meta, pc_plus_one, config.temp_vars.b.word, "b");
-            config.reg_gate(meta, reg, config.temp_vars.b.word, "b");
-            config.reg_next_gate(meta, reg_next, config.temp_vars.b.word, "b");
-            config.immediate_gate(meta, a, config.temp_vars.b.word, "b");
-            config.max_word_gate(meta, max_word, config.temp_vars.b.word, "b");
-        }
-
-        {
-            let SelectiorsC {
-                reg,
-                reg_next,
-                a,
-                non_det: _,
-                zero,
-            } = config.temp_var_selectors.c;
-
-            config.reg_gate(meta, reg, config.temp_vars.c.word, "c");
-            config.reg_next_gate(meta, reg_next, config.temp_vars.c.word, "c");
-            config.immediate_gate(meta, a, config.temp_vars.c.word, "c");
-            config.zero_gate(meta, zero, config.temp_vars.c.word, "c");
-        }
-
-        {
-            let SelectiorsD {
-                pc,
-                reg,
-                reg_next,
-                a,
-                non_det: _,
-                zero,
-                one,
-            } = config.temp_var_selectors.d;
-
-            config.pc_gate(meta, pc, config.temp_vars.d.word, "d");
-            config.reg_gate(meta, reg, config.temp_vars.d.word, "d");
-            config.reg_next_gate(meta, reg_next, config.temp_vars.d.word, "d");
-            config.immediate_gate(meta, a, config.temp_vars.d.word, "d");
-            config.zero_gate(meta, zero, config.temp_vars.d.word, "d");
-            config.one_gate(meta, one, config.temp_vars.d.word, "d");
-        }
         config
     }
 
