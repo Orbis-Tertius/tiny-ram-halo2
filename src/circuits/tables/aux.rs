@@ -40,10 +40,10 @@ impl<const REG_COUNT: usize, C: Copy> ExeRow<REG_COUNT, C> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct TempVarSelectors<const REG_COUNT: usize, C: Copy> {
-    pub a: SelectiorsA<REG_COUNT, C>,
-    pub b: SelectiorsB<REG_COUNT, C>,
-    pub c: SelectiorsC<REG_COUNT, C>,
-    pub d: SelectiorsD<REG_COUNT, C>,
+    pub a: SelectorsA<REG_COUNT, C>,
+    pub b: SelectorsB<REG_COUNT, C>,
+    pub c: SelectorsC<REG_COUNT, C>,
+    pub d: SelectorsD<REG_COUNT, C>,
     pub out: Out<C>,
     pub ch: UnChangedSelectors<REG_COUNT, C>,
 }
@@ -54,10 +54,10 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
         M: NewColumn<C>,
     {
         TempVarSelectors {
-            a: SelectiorsA::new_columns::<F, M>(meta),
-            b: SelectiorsB::new_columns::<F, M>(meta),
-            c: SelectiorsC::new_columns::<F, M>(meta),
-            d: SelectiorsD::new_columns::<F, M>(meta),
+            a: SelectorsA::new_columns::<F, M>(meta),
+            b: SelectorsB::new_columns::<F, M>(meta),
+            c: SelectorsC::new_columns::<F, M>(meta),
+            d: SelectorsD::new_columns::<F, M>(meta),
             out: Out::new(|| meta.new_column()),
             ch: UnChangedSelectors::new(|| meta.new_column()),
         }
@@ -582,10 +582,10 @@ pub enum SelectionA {
     NonDet,
 }
 
-/// Use `SelectiorsA::new_*` to construct correct selectors.
+/// Use `SelectorsA::new_*` to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsA<const REG_COUNT: usize, C: Copy> {
+pub struct SelectorsA<const REG_COUNT: usize, C: Copy> {
     pub pc_next: C,
 
     pub reg: Registers<REG_COUNT, C>,
@@ -598,9 +598,9 @@ pub struct SelectiorsA<const REG_COUNT: usize, C: Copy> {
     pub non_det: C,
 }
 
-impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
+impl<const REG_COUNT: usize> From<SelectionA> for SelectorsA<REG_COUNT, bool> {
     fn from(s: SelectionA) -> Self {
-        let mut r = SelectiorsA {
+        let mut r = SelectorsA {
             pc_next: false,
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
@@ -621,12 +621,12 @@ impl<const REG_COUNT: usize> From<SelectionA> for SelectiorsA<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
     fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
         M: NewColumn<C>,
     {
-        SelectiorsA {
+        SelectorsA {
             pc_next: meta.new_column(),
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
             reg: [0; REG_COUNT].map(|_| meta.new_column()).into(),
@@ -638,11 +638,11 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
     }
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsA<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
-        vals: SelectiorsA<REG_COUNT, bool>,
+        vals: SelectorsA<REG_COUNT, bool>,
     ) {
         let Self {
             pc_next,
@@ -686,10 +686,10 @@ pub enum SelectionB {
     MaxWord,
 }
 
-/// Use `SelectiorsA::new_*` to construct correct selectors.
+/// Use `SelectorsA::new_*` to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
+pub struct SelectorsB<const REG_COUNT: usize, C: Copy> {
     pub pc: C,
     pub pc_next: C,
 
@@ -706,12 +706,12 @@ pub struct SelectiorsB<const REG_COUNT: usize, C: Copy> {
     pub max_word: C,
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsB<REG_COUNT, C> {
     fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
         M: NewColumn<C>,
     {
-        SelectiorsB {
+        SelectorsB {
             pc: meta.new_column(),
             pc_next: meta.new_column(),
             pc_plus_one: meta.new_column(),
@@ -725,9 +725,9 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
     }
 }
 
-impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
+impl<const REG_COUNT: usize> From<SelectionB> for SelectorsB<REG_COUNT, bool> {
     fn from(s: SelectionB) -> Self {
-        let mut r = SelectiorsB {
+        let mut r = SelectorsB {
             pc: false,
             pc_next: false,
             pc_plus_one: false,
@@ -752,11 +752,11 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectiorsB<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsB<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsB<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
-        vals: SelectiorsB<REG_COUNT, bool>,
+        vals: SelectorsB<REG_COUNT, bool>,
     ) {
         let Self {
             pc,
@@ -801,10 +801,10 @@ pub enum SelectionC {
     Zero,
 }
 
-/// Use `SelectiorsA::new_*` to construct correct selectors.
+/// Use `SelectorsA::new_*` to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsC<const REG_COUNT: usize, C: Copy> {
+pub struct SelectorsC<const REG_COUNT: usize, C: Copy> {
     pub reg: Registers<REG_COUNT, C>,
     pub reg_next: Registers<REG_COUNT, C>,
 
@@ -816,12 +816,12 @@ pub struct SelectiorsC<const REG_COUNT: usize, C: Copy> {
     pub zero: C,
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsC<REG_COUNT, C> {
     fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
         M: NewColumn<C>,
     {
-        SelectiorsC {
+        SelectorsC {
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
             reg: Registers([0; REG_COUNT].map(|_| meta.new_column())),
             reg_next: Registers([0; REG_COUNT].map(|_| meta.new_column())),
@@ -832,9 +832,9 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
     }
 }
 
-impl<const REG_COUNT: usize> From<SelectionC> for SelectiorsC<REG_COUNT, bool> {
+impl<const REG_COUNT: usize> From<SelectionC> for SelectorsC<REG_COUNT, bool> {
     fn from(s: SelectionC) -> Self {
-        let mut r = SelectiorsC {
+        let mut r = SelectorsC {
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
             a: false,
@@ -853,11 +853,11 @@ impl<const REG_COUNT: usize> From<SelectionC> for SelectiorsC<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsC<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsC<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
-        vals: SelectiorsC<REG_COUNT, bool>,
+        vals: SelectorsC<REG_COUNT, bool>,
     ) {
         let Self {
             reg,
@@ -901,10 +901,10 @@ pub enum SelectionD {
     Unset,
 }
 
-/// Use `SelectiorsD::new_*` and From<SelectionD> to construct correct selectors.
+/// Use `SelectorsD::new_*` and From<SelectionD> to construct correct selectors.
 /// Fields ending with `next` refer to the next row (`t+1).
 #[derive(Debug, Clone, Copy)]
-pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
+pub struct SelectorsD<const REG_COUNT: usize, C: Copy> {
     pub pc: C,
 
     pub reg: Registers<REG_COUNT, C>,
@@ -919,12 +919,12 @@ pub struct SelectiorsD<const REG_COUNT: usize, C: Copy> {
     pub one: C,
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsD<REG_COUNT, C> {
     fn new_columns<F: FieldExt, M>(meta: &mut M) -> Self
     where
         M: NewColumn<C>,
     {
-        SelectiorsD {
+        SelectorsD {
             // Do not replace with `[meta.new_column(); REG_COUNT]` it's not equivalent.
             pc: meta.new_column(),
 
@@ -938,9 +938,9 @@ impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
     }
 }
 
-impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
+impl<const REG_COUNT: usize> From<SelectionD> for SelectorsD<REG_COUNT, bool> {
     fn from(s: SelectionD) -> Self {
-        let mut r = SelectiorsD {
+        let mut r = SelectorsD {
             pc: false,
             reg: Registers([false; REG_COUNT]),
             reg_next: Registers([false; REG_COUNT]),
@@ -967,11 +967,11 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectiorsD<REG_COUNT, bool> {
     }
 }
 
-impl<const REG_COUNT: usize, C: Copy> SelectiorsD<REG_COUNT, C> {
+impl<const REG_COUNT: usize, C: Copy> SelectorsD<REG_COUNT, C> {
     fn push_cells<F: FieldExt, R: PushRow<F, C>>(
         self,
         region: &mut R,
-        vals: SelectiorsD<REG_COUNT, bool>,
+        vals: SelectorsD<REG_COUNT, bool>,
     ) {
         let Self {
             pc,
