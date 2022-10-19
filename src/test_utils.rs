@@ -17,7 +17,7 @@ pub fn gen_proofs_and_verify<
     };
     use rand_core::OsRng;
 
-    let k = 1 + WORD_BITS / 2;
+    let k = 2 + WORD_BITS / 2;
     let params: Params<EqAffine> = halo2_proofs::poly::commitment::Params::new(k);
     let empty_circuit = C::default();
     let vk = keygen_vk(&params, &empty_circuit).unwrap();
