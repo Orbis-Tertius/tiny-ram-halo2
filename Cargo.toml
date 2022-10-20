@@ -18,5 +18,6 @@ proptest = "1.0.0"
 lazy_static = "1.4.0"
 
 [dependencies.halo2_proofs]
-version = "0.2.0"
+git = "https://github.com/Orbis-Tertius/halo2"
+branch = "tinyram-fork"
 features = ["dev-graph"]

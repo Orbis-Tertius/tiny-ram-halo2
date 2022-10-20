@@ -561,8 +561,7 @@ dependencies = [
 [[package]]
 name = "halo2_proofs"
 version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cff771b9a2445cd2545c9ef26d863c290fbb44ae440c825a20eb7156f67a949a"
+source = "git+https://github.com/Orbis-Tertius/halo2?branch=tinyram-fork#77639026551d9c4135e97126311bbab85ac328c5"
 dependencies = [
  "blake2b_simd",
  "ff 0.12.0",
