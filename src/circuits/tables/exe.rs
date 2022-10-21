@@ -48,10 +48,12 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// A Selector that's enabled on only the first line of the Exe table
     first_line: Selector,
+    /// A Selector denoting the extent of the Exe table.
     /// Enabled for every row that may contain a line of the trace.
-    table_max_len: Selector,
+    s_table: Selector,
+    /// An advice selector denoting the extent of the trace.
     /// Enabled for every row that contains a line of the trace.
-    trace_len: Column<Advice>,
+    s_trace: Column<Advice>,
     /// This is redundant with 0 padded `time`.
     /// We need it to make the mock prover happy and not giving CellNotAssigned errors.
     /// https://github.com/zcash/halo2/issues/533#issuecomment-1097371369
@@ -115,40 +117,40 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     /// The execution trace is at least one row.
     /// The last row of the execution trace must contain the instruction Answer.
     ///
-    /// Rows of the Exe table have been set `table_max_len = 1`.
-    /// Rows of the execution trace have been set `trace_len = 1`.
+    /// Rows of the Exe table have been set `s_table = 1`.
+    /// Rows of the execution trace have been set `s_trace = 1`.
     /// If the trace is shorter than the Exe table's length,
-    /// the remaining rows must have been set `trace_len = 0`.
+    /// the remaining rows must have been set `s_trace = 0`.
     ///
     /// We use three gates to enforce this.
     ///
     /// 1. `start_trace` gate:
     ///
     /// The first row of exe contains the first row of trace.
-    /// (start_trace * 1 - trace_len)
+    /// (start_trace * 1 - s_trace)
     ///
     /// 2. `contiguous_trace` gate:
     ///
-    /// This row and the next row must both be included or excluded from the trace_len.
-    /// `let contiguous = (trace_len - trace_len_next)`
+    /// This row and the next row must both be included or excluded from the s_trace.
+    /// `let contiguous = (s_trace - trace_len_next)`
     ///
-    /// Evaluates to 0 if row is part of the trace_len (trace_len = 1), and the instruction is `Answer`.
-    /// `let may_change = (R - (trace_len * R) + opcode - answer::OP_CODE)`
+    /// Evaluates to 0 if row is part of the s_trace (s_trace = 1), and the instruction is `Answer`.
+    /// `let may_change = (R - (s_trace * R) + opcode - answer::OP_CODE)`
     /// Where `R` is a constant greater than `Answer::OP_CODE / 2`.
     /// Note that `R` definition relies on the fact that `Answer` has the highest opcode of any instruction.
     ///
     /// The whole `contiguous_trace` gate guaranties the trace or the padding continues on the next row of the Exe table.
     /// Or the current line is part of the trace, and contains the instruction `Answer`.
-    /// `table_max_len * contiguous * may_change`
+    /// `s_table * contiguous * may_change`
     ///
     /// Note that this gate does not enforce that a trace ends with the instruction `Answer`.
     /// Nor does it enforce that row containing the instruction `Answer` is followed by padding.
-    /// The former can be enforced by checking that the last line of the Exe table contains `trace_len = 0`
+    /// The former can be enforced by checking that the last line of the Exe table contains `s_trace = 0`
     /// The latter is enforced by including `trace_len_next` in the `Out` lookup.
     ///
-    /// Without `may_change` the lookup is not sufficient to guarantee padding (rows with `trace_len = 0`)
-    /// cannot be followed by part of the trace (rows with `trace_len = 1`).
-    /// The `trace_len_next: table_max_len * trace_len * trace_len_next` looks up the default 0 when `trace_len = 0`.
+    /// Without `may_change` the lookup is not sufficient to guarantee padding (rows with `s_trace = 0`)
+    /// cannot be followed by part of the trace (rows with `s_trace = 1`).
+    /// The `trace_len_next: s_table * s_trace * trace_len_next` looks up the default 0 when `s_trace = 0`.
     /// So the sequence: answer, padding, arbitrary instruction, would be allowed.
     // TODO enforce trace ends with `Answer 0`
     fn trace_len_gates<F: FieldExt>(&self, meta: &mut ConstraintSystem<F>) {
@@ -157,9 +159,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
 
             let first_line = meta.query_selector(self.first_line);
 
-            let trace_len = meta.query_advice(self.trace_len, Rotation::cur());
+            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-            Constraints::with_selector(first_line, [(one - trace_len)])
+            Constraints::with_selector(first_line, [(one - s_trace)])
         });
 
         meta.create_gate("contiguous_trace", |meta| {
@@ -167,17 +169,17 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             // R could be anything `> answer::OP_CODE / 2`.
             let r = Expression::Constant(F::from(u64::MAX));
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let s_table = meta.query_selector(self.s_table);
 
-            let trace_len = meta.query_advice(self.trace_len, Rotation::cur());
-            let trace_len_next = meta.query_advice(self.trace_len, Rotation::next());
+            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+            let trace_len_next = meta.query_advice(self.s_trace, Rotation::next());
 
             let opcode = meta.query_advice(self.opcode, Rotation::cur());
 
-            let contiguous = trace_len.clone() - trace_len_next;
-            let may_change = r.clone() - (trace_len * r) + opcode - answer_opcode;
+            let contiguous = s_trace.clone() - trace_len_next;
+            let may_change = r.clone() - (s_trace * r) + opcode - answer_opcode;
 
-            Constraints::with_selector(table_max_len, [contiguous * may_change])
+            Constraints::with_selector(s_table, [contiguous * may_change])
         })
     }
     fn pc_gate<F: FieldExt>(
@@ -210,10 +212,10 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let pc = meta.query_advice(self.pc, Rotation::cur());
             let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let s_table = meta.query_selector(self.s_table);
 
             vec![
-                table_max_len
+                s_table
                     * sa_pc_next
                     * ((pc + Expression::Constant(F::one())) - t_var),
             ]
@@ -237,11 +239,10 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 // We disable this gate on the last row of the Exe trace.
                 // This is fine since the last row must contain Answer 0.
                 // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
-                let in_trace_next =
-                    meta.query_advice(self.trace_len, Rotation::next());
+                let s_trace_next = meta.query_advice(self.s_trace, Rotation::next());
                 let exe_len = meta.query_selector(self.exe_len);
 
-                vec![exe_len * in_trace_next * sa_pc_next * (pc_next - t_var)]
+                vec![exe_len * s_trace_next * sa_pc_next * (pc_next - t_var)]
             },
         );
     }
@@ -262,9 +263,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                         .query_advice(self.reg[RegName(i as _)], Rotation::cur());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                    let table_max_len = meta.query_selector(self.table_max_len);
+                    let s_table = meta.query_selector(self.s_table);
 
-                    vec![table_max_len * s_reg * (reg - t_var_a)]
+                    vec![s_table * s_reg * (reg - t_var_a)]
                 },
             );
         }
@@ -286,11 +287,11 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                         .query_advice(self.reg[RegName(i as _)], Rotation::next());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                    let in_trace_next =
-                        meta.query_advice(self.trace_len, Rotation::next());
+                    let s_trace_next =
+                        meta.query_advice(self.s_trace, Rotation::next());
                     let exe_len = meta.query_selector(self.exe_len);
 
-                    vec![exe_len * in_trace_next * s_reg * (reg_next - t_var_a)]
+                    vec![exe_len * s_trace_next * s_reg * (reg_next - t_var_a)]
                 },
             );
         }
@@ -308,9 +309,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let immediate = meta.query_advice(self.immediate, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let s_table = meta.query_selector(self.s_table);
 
-            vec![table_max_len * s_immediate * (immediate - t_var_a)]
+            vec![s_table * s_immediate * (immediate - t_var_a)]
         });
     }
 
@@ -326,9 +327,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let value = meta.query_advice(self.value, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let s_table = meta.query_selector(self.s_table);
 
-            vec![table_max_len * s_vaddr * (value - t_var_a)]
+            vec![s_table * s_vaddr * (value - t_var_a)]
         });
     }
 
@@ -343,9 +344,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let s_one = meta.query_advice(one_sel, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let s_table = meta.query_selector(self.s_table);
 
-            vec![table_max_len * s_one * (Expression::Constant(F::one()) - t_var_a)]
+            vec![s_table * s_one * (Expression::Constant(F::one()) - t_var_a)]
         });
     }
 
@@ -360,9 +361,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let s_zero = meta.query_advice(zero_sel, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let table_max_len = meta.query_selector(self.table_max_len);
+            let s_table = meta.query_selector(self.s_table);
 
-            vec![table_max_len * s_zero * t_var_a]
+            vec![s_table * s_zero * t_var_a]
         });
     }
 
@@ -379,10 +380,10 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 let s_max_word = meta.query_advice(one_sel, Rotation::cur());
                 let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                let table_max_len = meta.query_selector(self.table_max_len);
+                let s_table = meta.query_selector(self.s_table);
 
                 vec![
-                    table_max_len
+                    s_table
                         * s_max_word
                         * (Expression::Constant(F::from_u128(
                             2u128.pow(WORD_BITS) - 1,
@@ -510,9 +511,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
 
         let first_line = meta.selector();
-        let table_max_len = meta.complex_selector();
+        let s_table = meta.complex_selector();
         let exe_len = meta.complex_selector();
-        let trace_len = meta.advice_column();
+        let s_trace = meta.advice_column();
 
         let even_bits = EvenBitsTable::new(meta);
         let pow_table = PowTable::new(meta);
@@ -521,8 +522,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             meta,
             opcode,
             temp_var_selectors.out,
-            trace_len,
-            table_max_len,
+            s_trace,
+            s_table,
             out_table,
         );
 
@@ -606,7 +607,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let logic = LogicConfig::configure(
             &mut meta,
             even_bits,
-            table_max_len,
+            s_table,
             temp_var_selectors.out.and,
             temp_var_selectors.out.xor,
             temp_var_selectors.out.or,
@@ -715,8 +716,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         ExeConfig {
             first_line,
-            table_max_len,
-            trace_len,
+            s_table,
+            s_trace,
             exe_len,
             time,
             pc,
@@ -770,8 +771,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     ) -> Result<(), Error> {
         let ExeConfig {
             first_line,
-            table_max_len,
-            trace_len,
+            s_table,
+            s_trace,
             exe_len,
             time,
             pc,
@@ -816,7 +817,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             )
                             .unwrap();
 
-                        table_max_len.enable(&mut region, offset)?;
+                        s_table.enable(&mut region, offset)?;
                     }
 
                     // TODO remove once the mock prover is improved
@@ -828,7 +829,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     for offset in 0..trace.exe.len() {
                         region.assign_advice(
                             || "",
-                            trace_len,
+                            s_trace,
                             offset,
                             || Value::known(F::one()),
                         )?;
@@ -1049,7 +1050,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     region
                         .assign_advice(
                             || "",
-                            trace_len,
+                            s_trace,
                             trace.exe.len(),
                             || Value::known(F::zero()),
                         )
