@@ -11,18 +11,21 @@ use halo2_proofs::{
 use crate::{assign::PushRow, trace::Registers};
 
 /// This corresponds to sch in the paper.
-/// A selector value of 1 denotes an unchanged cell.
+/// The meaning of 0, and 1 is inverted relative to the paper.
+/// A selector value of 0 denotes an unchanged cell.
+///
+/// This inversion will enable use of the selection vector combining optimization.
 #[derive(Debug, Clone, Copy)]
-pub struct UnChangedSelectors<const REG_COUNT: usize, T> {
+pub struct ChangedSelectors<const REG_COUNT: usize, T> {
     pub regs: Registers<REG_COUNT, T>,
-    /// Unlike all the other entries, `pc: true` denotes a incremented program count.
+    /// Unlike all the other entries, `pc: false` denotes a incremented program count.
     pub pc: T,
     pub flag: T,
 }
 
-impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
+impl<const REG_COUNT: usize, T> ChangedSelectors<REG_COUNT, T> {
     pub fn new(mut new_fn: impl FnMut() -> T) -> Self {
-        UnChangedSelectors {
+        ChangedSelectors {
             regs: Registers([0usize; REG_COUNT].map(|_| new_fn())),
             pc: new_fn(),
             flag: new_fn(),
@@ -32,7 +35,7 @@ impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
     pub fn push_cells<F: FieldExt, R: PushRow<F, T>>(
         self,
         region: &mut R,
-        vals: UnChangedSelectors<REG_COUNT, bool>,
+        vals: ChangedSelectors<REG_COUNT, bool>,
     ) -> Result<(), plonk::Error>
     where
         T: Debug,
@@ -48,8 +51,8 @@ impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
         Ok(())
     }
 
-    pub fn convert<B: From<T>>(self) -> UnChangedSelectors<REG_COUNT, B> {
-        UnChangedSelectors {
+    pub fn convert<B: From<T>>(self) -> ChangedSelectors<REG_COUNT, B> {
+        ChangedSelectors {
             regs: self.regs.convert(),
             pc: self.pc.into(),
             flag: self.flag.into(),
@@ -57,13 +60,13 @@ impl<const REG_COUNT: usize, T> UnChangedSelectors<REG_COUNT, T> {
     }
 }
 
-impl<const REG_COUNT: usize> UnChangedSelectors<REG_COUNT, Column<Advice>> {
+impl<const REG_COUNT: usize> ChangedSelectors<REG_COUNT, Column<Advice>> {
     pub fn unchanged_gate<F: FieldExt>(
         &self,
         meta: &mut ConstraintSystem<F>,
         s_table: Selector,
 
-        // Consider refactoring UnChangedSelectors into a new type around `State {regs, pc, flag}`
+        // TODO Consider refactoring ChangedSelectors into a new type around `State {regs, pc, flag}`
         regs: Registers<REG_COUNT, Column<Advice>>,
         pc: Column<Advice>,
         flag: Column<Advice>,
@@ -81,8 +84,10 @@ impl<const REG_COUNT: usize> UnChangedSelectors<REG_COUNT, Column<Advice>> {
             let flag_n = meta.query_advice(flag, Rotation::next());
             let flag = meta.query_advice(flag, Rotation::cur());
 
-            let mut constraints =
-                vec![ch_pc * (pc + one - pc_n), ch_flag * (flag - flag_n)];
+            let mut constraints = vec![
+                (one.clone() - ch_pc) * (pc + one.clone() - pc_n),
+                (one.clone() - ch_flag) * (flag - flag_n),
+            ];
 
             constraints.extend(self.regs.0.iter().zip(regs.0.iter()).map(
                 |(ch_r, r)| {
@@ -90,7 +95,7 @@ impl<const REG_COUNT: usize> UnChangedSelectors<REG_COUNT, Column<Advice>> {
                     let r_n = meta.query_advice(*r, Rotation::next());
                     let r = meta.query_advice(*r, Rotation::cur());
 
-                    ch_r * (r - r_n)
+                    (one.clone() - ch_r) * (r - r_n)
                 },
             ));
 

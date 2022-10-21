@@ -8,7 +8,7 @@ use halo2_proofs::arithmetic::FieldExt;
 
 use crate::{
     assign::{NewColumn, PushRow},
-    circuits::{changed::UnChangedSelectors, shift},
+    circuits::{changed::ChangedSelectors, shift},
     instructions::*,
     trace::{self, *},
 };
@@ -45,7 +45,7 @@ pub struct TempVarSelectors<const REG_COUNT: usize, C: Copy> {
     pub c: SelectorsC<REG_COUNT, C>,
     pub d: SelectorsD<REG_COUNT, C>,
     pub out: Out<C>,
-    pub ch: UnChangedSelectors<REG_COUNT, C>,
+    pub ch: ChangedSelectors<REG_COUNT, C>,
 }
 
 impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
@@ -59,7 +59,7 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
             c: SelectorsC::new_columns::<F, M>(meta),
             d: SelectorsD::new_columns::<F, M>(meta),
             out: Out::new(|| meta.new_column()),
-            ch: UnChangedSelectors::new(|| meta.new_column()),
+            ch: ChangedSelectors::new(|| meta.new_column()),
         }
     }
 
@@ -94,17 +94,17 @@ pub struct TempVarSelectorsRow<const REG_COUNT: usize> {
     pub c: SelectionC,
     pub d: SelectionD,
     pub out: Out<bool>,
-    pub ch: UnChangedSelectors<REG_COUNT, bool>,
+    pub ch: ChangedSelectors<REG_COUNT, bool>,
 }
 
 impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
     for TempVarSelectorsRow<REG_COUNT>
 {
     fn from(inst: &Instruction<RegName, ImmediateOrRegName>) -> Self {
-        let ch = UnChangedSelectors {
-            regs: Registers([true; REG_COUNT]),
-            pc: true,
-            flag: true,
+        let ch = ChangedSelectors {
+            regs: Registers([false; REG_COUNT]),
+            pc: false,
+            flag: false,
         };
 
         match *inst {
@@ -115,9 +115,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
                 out: And::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -127,9 +127,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
                 out: Or::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -139,9 +139,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
                 out: Xor::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -152,9 +152,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Unset,
                 out: Not::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -165,9 +165,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::Zero,
                 out: Add::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -177,9 +177,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::Reg(rj),
                 d: SelectionD::Zero,
                 out: Sub::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -189,9 +189,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
                 out: Mull::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -201,9 +201,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
                 out: UMulh::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -213,9 +213,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
                 out: SMulh::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -225,9 +225,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
                 out: UDiv::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -237,9 +237,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::A(a),
                 d: SelectionD::Reg(rj),
                 out: UMod::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -249,9 +249,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::NonDet,
                 d: SelectionD::RegN(ri),
                 out: Shl::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -261,9 +261,9 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::RegN(ri),
                 d: SelectionD::NonDet,
                 out: Shr::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
-                    flag: false,
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
+                    flag: true,
                     ..ch
                 },
             },
@@ -275,7 +275,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::NonDet,
                 d: SelectionD::Unset,
                 out: Cmpe::<(), ()>::OUT,
-                ch: UnChangedSelectors { flag: false, ..ch },
+                ch: ChangedSelectors { flag: true, ..ch },
             },
             Instruction::Cmpa(Cmpa { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
@@ -283,7 +283,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
                 out: Cmpa::<(), ()>::OUT,
-                ch: UnChangedSelectors { flag: false, ..ch },
+                ch: ChangedSelectors { flag: true, ..ch },
             },
             Instruction::Cmpae(Cmpae { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
@@ -291,7 +291,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::A(a),
                 d: SelectionD::One,
                 out: Cmpae::<(), ()>::OUT,
-                ch: UnChangedSelectors { flag: false, ..ch },
+                ch: ChangedSelectors { flag: true, ..ch },
             },
             Instruction::Cmpg(Cmpg { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
@@ -299,7 +299,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::A(a),
                 d: SelectionD::Zero,
                 out: Cmpg::<(), ()>::OUT,
-                ch: UnChangedSelectors { flag: false, ..ch },
+                ch: ChangedSelectors { flag: true, ..ch },
             },
             Instruction::Cmpge(Cmpge { ri, a }) => Self {
                 a: SelectionA::Reg(ri),
@@ -307,7 +307,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::A(a),
                 d: SelectionD::One,
                 out: Cmpge::<(), ()>::OUT,
-                ch: UnChangedSelectors { flag: false, ..ch },
+                ch: ChangedSelectors { flag: true, ..ch },
             },
             Instruction::Mov(Mov { ri, a }) => Self {
                 a: SelectionA::A(a),
@@ -315,8 +315,8 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
                 out: Mov::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
                     ..ch
                 },
             },
@@ -328,8 +328,8 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 // It's a typo, on page 33 d = ri,t.
                 d: SelectionD::Reg(ri),
                 out: CMov::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
                     ..ch
                 },
             },
@@ -339,7 +339,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::Zero,
                 d: SelectionD::Unset,
                 out: Jmp::<()>::OUT,
-                ch: UnChangedSelectors { pc: false, ..ch },
+                ch: ChangedSelectors { pc: true, ..ch },
             },
             Instruction::CJmp(CJmp { a }) => Self {
                 a: SelectionA::PcN,
@@ -347,7 +347,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::Zero,
                 d: SelectionD::PcPlusOne,
                 out: CJmp::<()>::OUT,
-                ch: UnChangedSelectors { pc: false, ..ch },
+                ch: ChangedSelectors { pc: true, ..ch },
             },
             Instruction::CnJmp(CnJmp { a }) => Self {
                 a: SelectionA::PcN,
@@ -355,7 +355,7 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::Zero,
                 d: SelectionD::A(a),
                 out: CnJmp::<()>::OUT,
-                ch: UnChangedSelectors { pc: false, ..ch },
+                ch: ChangedSelectors { pc: true, ..ch },
             },
 
             Instruction::LoadW(LoadW { ri, .. }) => Self {
@@ -364,8 +364,8 @@ impl<const REG_COUNT: usize> From<&Instruction<RegName, ImmediateOrRegName>>
                 c: SelectionC::Zero,
                 d: SelectionD::Zero,
                 out: LoadW::<(), ()>::OUT,
-                ch: UnChangedSelectors {
-                    regs: ch.regs.set(ri, false),
+                ch: ChangedSelectors {
+                    regs: ch.regs.set(ri, true),
                     ..ch
                 },
             },
