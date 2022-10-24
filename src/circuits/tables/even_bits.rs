@@ -4,8 +4,8 @@ use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, Value},
     plonk::{
-        Advice, Column, ConstraintSystem, Error, Expression, Selector, TableColumn,
-        VirtualCells,
+        Advice, Column, ConstraintSystem, Constraints, Error, Expression, Selector,
+        TableColumn, VirtualCells,
     },
     poly::Rotation,
 };
@@ -149,7 +149,10 @@ impl<const WORD_BITS: u32> EvenBitsConfig<WORD_BITS> {
             let rhs = meta.query_advice(odd, Rotation::cur());
             let out = meta.query_advice(word, Rotation::cur());
 
-            vec![s_even_bits * (lhs + Expression::Constant(F::from(2)) * rhs - out)]
+            Constraints::with_selector(
+                s_even_bits,
+                [(lhs + Expression::Constant(F::from(2)) * rhs - out)],
+            )
         });
 
         let _ = meta.lookup(|meta| {

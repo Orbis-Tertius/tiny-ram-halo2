@@ -179,7 +179,12 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let contiguous = s_trace.clone() - trace_len_next;
             let may_change = r.clone() - (s_trace * r) + opcode - answer_opcode;
 
-            Constraints::with_selector(s_table, [contiguous * may_change])
+            Constraints::with_selector(
+                s_table,
+                [Expression::SelectorExpression(Box::new(
+                    contiguous * may_change,
+                ))],
+            )
         })
     }
     fn pc_gate<F: FieldExt>(
@@ -194,9 +199,13 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let pc = meta.query_advice(self.pc, Rotation::cur());
             let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-            let exe_len = meta.query_selector(self.exe_len);
+            let s_table = meta.query_selector(self.s_table);
+            let s_trace = meta.query_advice(self.s_trace, Rotation::next());
 
-            vec![exe_len * sa_pc_next * (pc - t_var)]
+            Constraints::with_selector(
+                s_table * s_trace * sa_pc_next,
+                [(pc - t_var)],
+            )
         });
     }
 
@@ -213,12 +222,12 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let t_var = meta.query_advice(temp_var, Rotation::cur());
 
             let s_table = meta.query_selector(self.s_table);
+            let s_trace_next = meta.query_advice(self.s_trace, Rotation::next());
 
-            vec![
-                s_table
-                    * sa_pc_next
-                    * ((pc + Expression::Constant(F::one())) - t_var),
-            ]
+            Constraints::with_selector(
+                s_table * s_trace_next * sa_pc_next,
+                [((pc + Expression::Constant(F::one())) - t_var)],
+            )
         });
     }
 
@@ -236,13 +245,16 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 let pc_next = meta.query_advice(self.pc, Rotation::next());
                 let t_var = meta.query_advice(temp_var, Rotation::cur());
 
+                let s_table = meta.query_selector(self.s_table);
                 // We disable this gate on the last row of the Exe trace.
                 // This is fine since the last row must contain Answer 0.
                 // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
                 let s_trace_next = meta.query_advice(self.s_trace, Rotation::next());
-                let exe_len = meta.query_selector(self.exe_len);
 
-                vec![exe_len * s_trace_next * sa_pc_next * (pc_next - t_var)]
+                Constraints::with_selector(
+                    s_table * s_trace_next * sa_pc_next,
+                    [(pc_next - t_var)],
+                )
             },
         );
     }
@@ -264,8 +276,12 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
                     let s_table = meta.query_selector(self.s_table);
+                    let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-                    vec![s_table * s_reg * (reg - t_var_a)]
+                    Constraints::with_selector(
+                        s_table * s_trace * s_reg,
+                        [(reg - t_var_a)],
+                    )
                 },
             );
         }
@@ -282,16 +298,19 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             meta.create_gate(
                 leak_once(format!("tv.{}.reg[{}]", temp_var_name, i)),
                 |meta| {
-                    let s_reg = meta.query_advice(s_reg_next, Rotation::cur());
+                    let s_reg_next = meta.query_advice(s_reg_next, Rotation::cur());
                     let reg_next = meta
                         .query_advice(self.reg[RegName(i as _)], Rotation::next());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
+                    let s_table = meta.query_selector(self.s_table);
                     let s_trace_next =
                         meta.query_advice(self.s_trace, Rotation::next());
-                    let exe_len = meta.query_selector(self.exe_len);
 
-                    vec![exe_len * s_trace_next * s_reg * (reg_next - t_var_a)]
+                    Constraints::with_selector(
+                        s_table * s_trace_next * s_reg_next,
+                        [(reg_next - t_var_a)],
+                    )
                 },
             );
         }
@@ -310,8 +329,12 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
             let s_table = meta.query_selector(self.s_table);
+            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-            vec![s_table * s_immediate * (immediate - t_var_a)]
+            Constraints::with_selector(
+                s_table * s_trace * s_immediate,
+                [(immediate - t_var_a)],
+            )
         });
     }
 
@@ -328,8 +351,12 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
             let s_table = meta.query_selector(self.s_table);
+            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-            vec![s_table * s_vaddr * (value - t_var_a)]
+            Constraints::with_selector(
+                s_table * s_trace * s_vaddr,
+                [(value - t_var_a)],
+            )
         });
     }
 
@@ -345,8 +372,12 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
             let s_table = meta.query_selector(self.s_table);
+            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-            vec![s_table * s_one * (Expression::Constant(F::one()) - t_var_a)]
+            Constraints::with_selector(
+                s_table * s_trace * s_one,
+                [(Expression::Constant(F::one()) - t_var_a)],
+            )
         });
     }
 
@@ -362,8 +393,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
             let s_table = meta.query_selector(self.s_table);
+            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-            vec![s_table * s_zero * t_var_a]
+            Constraints::with_selector(s_table * s_trace * s_zero, [t_var_a])
         });
     }
 
@@ -381,14 +413,16 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
                 let s_table = meta.query_selector(self.s_table);
+                let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
 
-                vec![
-                    s_table
-                        * s_max_word
-                        * (Expression::Constant(F::from_u128(
+                Constraints::with_selector(
+                    s_table * s_trace * s_max_word,
+                    [
+                        (Expression::Constant(F::from_u128(
                             2u128.pow(WORD_BITS) - 1,
                         )) - t_var_a),
-                ]
+                    ],
+                )
             },
         );
     }
@@ -804,8 +838,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                     first_line.enable(&mut region, 0).unwrap();
 
                     // FIXME Define the extent of the Exe table.
-                    // for offset in 0..ExeConfig::<WORD_BITS, REG_COUNT>::TABLE_LEN {
-                    for offset in 0..trace.exe.len() {
+                    for offset in 0..ExeConfig::<WORD_BITS, REG_COUNT>::TABLE_LEN {
+                        // for offset in 0..trace.exe.len() {
                         // Time is 1 indexed.
                         // TODO consider making time 0 indexed
                         region
