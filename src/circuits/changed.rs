@@ -10,6 +10,8 @@ use halo2_proofs::{
 
 use crate::{assign::PushRow, trace::Registers};
 
+use super::tables::exe::TraceSelector;
+
 /// This corresponds to sch in the paper.
 /// The meaning of 0, and 1 is inverted relative to the paper.
 /// A selector value of 0 denotes an unchanged cell.
@@ -64,7 +66,7 @@ impl<const REG_COUNT: usize> ChangedSelectors<REG_COUNT, Column<Advice>> {
     pub fn unchanged_gate<F: FieldExt>(
         &self,
         meta: &mut ConstraintSystem<F>,
-        s_table: Selector,
+        s_trace: TraceSelector,
 
         // TODO Consider refactoring ChangedSelectors into a new type around `State {regs, pc, flag}`
         regs: Registers<REG_COUNT, Column<Advice>>,
@@ -74,7 +76,7 @@ impl<const REG_COUNT: usize> ChangedSelectors<REG_COUNT, Column<Advice>> {
         meta.create_gate("unchanged", |meta| {
             let one = Expression::Constant(F::one());
 
-            let s_table = meta.query_selector(s_table);
+            let s_extent = s_trace.query_trace_next(meta);
 
             let ch_pc = meta.query_advice(self.pc, Rotation::cur());
             let pc_n = meta.query_advice(pc, Rotation::next());
@@ -99,7 +101,7 @@ impl<const REG_COUNT: usize> ChangedSelectors<REG_COUNT, Column<Advice>> {
                 },
             ));
 
-            Constraints::with_selector(s_table, constraints)
+            Constraints::with_selector(s_extent, constraints)
         });
     }
 }

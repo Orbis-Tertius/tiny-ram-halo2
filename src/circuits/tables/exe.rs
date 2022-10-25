@@ -7,7 +7,7 @@ use halo2_proofs::{
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Constraints, Error, Expression,
-        Fixed, Selector,
+        Fixed, Selector, VirtualCells,
     },
     poly::Rotation,
 };
@@ -37,6 +37,38 @@ use super::{
     signed::SignedConfig,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub struct TraceSelector {
+    /// A Selector denoting the extent of the Exe table.
+    /// Enabled for every row that may contain a line of the trace.
+    pub s_table: Selector,
+    /// An advice selector denoting the extent of the trace.
+    /// Enabled for every row that contains a line of the trace.
+    pub s_trace: Column<Advice>,
+}
+
+impl TraceSelector {
+    pub fn query<F: FieldExt>(
+        self: TraceSelector,
+        meta: &mut VirtualCells<F>,
+    ) -> Expression<F> {
+        let s_table = meta.query_selector(self.s_table);
+        let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+        Expression::SelectorExpression(Box::new(s_table * s_trace))
+    }
+
+    /// Query the current row of `s_table`, and the next row of s_trace.
+    /// Useful for constraints that should now applie on the last line of the trace.
+    pub fn query_trace_next<F: FieldExt>(
+        self: TraceSelector,
+        meta: &mut VirtualCells<F>,
+    ) -> Expression<F> {
+        let s_table = meta.query_selector(self.s_table);
+        let s_trace = meta.query_advice(self.s_trace, Rotation::next());
+        Expression::SelectorExpression(Box::new(s_table * s_trace))
+    }
+}
+
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
     config: ExeConfig<WORD_BITS, REG_COUNT>,
     _marker: PhantomData<F>,
@@ -48,18 +80,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// A Selector that's enabled on only the first line of the Exe table
     first_line: Selector,
-    /// A Selector denoting the extent of the Exe table.
-    /// Enabled for every row that may contain a line of the trace.
-    s_table: Selector,
-    /// An advice selector denoting the extent of the trace.
-    /// Enabled for every row that contains a line of the trace.
-    s_trace: Column<Advice>,
-    /// This is redundant with 0 padded `time`.
-    /// We need it to make the mock prover happy and not giving CellNotAssigned errors.
-    /// https://github.com/zcash/halo2/issues/533#issuecomment-1097371369
-    ///
-    /// It's set on rows 0..exe_len() - 1
-    exe_len: Selector,
+    extent: TraceSelector,
 
     /// Instruction count
     time: Column<Fixed>,
@@ -159,7 +180,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
 
             let first_line = meta.query_selector(self.first_line);
 
-            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+            let s_trace = meta.query_advice(self.extent.s_trace, Rotation::cur());
 
             Constraints::with_selector(first_line, [(one - s_trace)])
         });
@@ -169,10 +190,11 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             // R could be anything `> answer::OP_CODE / 2`.
             let r = Expression::Constant(F::from(u64::MAX));
 
-            let s_table = meta.query_selector(self.s_table);
+            let s_table = meta.query_selector(self.extent.s_table);
 
-            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
-            let trace_len_next = meta.query_advice(self.s_trace, Rotation::next());
+            let s_trace = meta.query_advice(self.extent.s_trace, Rotation::cur());
+            let trace_len_next =
+                meta.query_advice(self.extent.s_trace, Rotation::next());
 
             let opcode = meta.query_advice(self.opcode, Rotation::cur());
 
@@ -199,8 +221,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let pc = meta.query_advice(self.pc, Rotation::cur());
             let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-            let s_table = meta.query_selector(self.s_table);
-            let s_trace = meta.query_advice(self.s_trace, Rotation::next());
+            let s_table = meta.query_selector(self.extent.s_table);
+            let s_trace = meta.query_advice(self.extent.s_trace, Rotation::next());
 
             Constraints::with_selector(
                 s_table * s_trace * sa_pc_next,
@@ -221,11 +243,10 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let pc = meta.query_advice(self.pc, Rotation::cur());
             let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-            let s_table = meta.query_selector(self.s_table);
-            let s_trace_next = meta.query_advice(self.s_trace, Rotation::next());
+            let s_trace_next = self.extent.query_trace_next(meta);
 
             Constraints::with_selector(
-                s_table * s_trace_next * sa_pc_next,
+                s_trace_next * sa_pc_next,
                 [((pc + Expression::Constant(F::one())) - t_var)],
             )
         });
@@ -245,14 +266,13 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 let pc_next = meta.query_advice(self.pc, Rotation::next());
                 let t_var = meta.query_advice(temp_var, Rotation::cur());
 
-                let s_table = meta.query_selector(self.s_table);
                 // We disable this gate on the last row of the Exe trace.
                 // This is fine since the last row must contain Answer 0.
                 // If we did not disable pc_next we would be querying an unassigned cell `pc_next`.
-                let s_trace_next = meta.query_advice(self.s_trace, Rotation::next());
+                let s_trace_next = self.extent.query_trace_next(meta);
 
                 Constraints::with_selector(
-                    s_table * s_trace_next * sa_pc_next,
+                    s_trace_next * sa_pc_next,
                     [(pc_next - t_var)],
                 )
             },
@@ -275,13 +295,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                         .query_advice(self.reg[RegName(i as _)], Rotation::cur());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                    let s_table = meta.query_selector(self.s_table);
-                    let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+                    let s_trace = self.extent.query(meta);
 
-                    Constraints::with_selector(
-                        s_table * s_trace * s_reg,
-                        [(reg - t_var_a)],
-                    )
+                    Constraints::with_selector(s_trace * s_reg, [(reg - t_var_a)])
                 },
             );
         }
@@ -303,12 +319,10 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                         .query_advice(self.reg[RegName(i as _)], Rotation::next());
                     let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                    let s_table = meta.query_selector(self.s_table);
-                    let s_trace_next =
-                        meta.query_advice(self.s_trace, Rotation::next());
+                    let s_trace_next = self.extent.query_trace_next(meta);
 
                     Constraints::with_selector(
-                        s_table * s_trace_next * s_reg_next,
+                        s_trace_next * s_reg_next,
                         [(reg_next - t_var_a)],
                     )
                 },
@@ -328,11 +342,10 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let immediate = meta.query_advice(self.immediate, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let s_table = meta.query_selector(self.s_table);
-            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+            let s_trace = self.extent.query(meta);
 
             Constraints::with_selector(
-                s_table * s_trace * s_immediate,
+                s_trace * s_immediate,
                 [(immediate - t_var_a)],
             )
         });
@@ -350,8 +363,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let value = meta.query_advice(self.value, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let s_table = meta.query_selector(self.s_table);
-            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+            let s_table = meta.query_selector(self.extent.s_table);
+            let s_trace = meta.query_advice(self.extent.s_trace, Rotation::cur());
 
             Constraints::with_selector(
                 s_table * s_trace * s_vaddr,
@@ -371,8 +384,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let s_one = meta.query_advice(one_sel, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let s_table = meta.query_selector(self.s_table);
-            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+            let s_table = meta.query_selector(self.extent.s_table);
+            let s_trace = meta.query_advice(self.extent.s_trace, Rotation::cur());
 
             Constraints::with_selector(
                 s_table * s_trace * s_one,
@@ -392,8 +405,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let s_zero = meta.query_advice(zero_sel, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-            let s_table = meta.query_selector(self.s_table);
-            let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+            let s_table = meta.query_selector(self.extent.s_table);
+            let s_trace = meta.query_advice(self.extent.s_trace, Rotation::cur());
 
             Constraints::with_selector(s_table * s_trace * s_zero, [t_var_a])
         });
@@ -412,8 +425,9 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
                 let s_max_word = meta.query_advice(one_sel, Rotation::cur());
                 let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
-                let s_table = meta.query_selector(self.s_table);
-                let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
+                let s_table = meta.query_selector(self.extent.s_table);
+                let s_trace =
+                    meta.query_advice(self.extent.s_trace, Rotation::cur());
 
                 Constraints::with_selector(
                     s_table * s_trace * s_max_word,
@@ -546,7 +560,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let first_line = meta.selector();
         let s_table = meta.complex_selector();
-        let exe_len = meta.complex_selector();
         let s_trace = meta.advice_column();
 
         let even_bits = EvenBitsTable::new(meta);
@@ -564,11 +577,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let mut meta = TrackColumns::new(meta);
 
         let temp_vars =
-            TempVars::configure(&mut meta, exe_len, temp_var_selectors, even_bits);
+            TempVars::configure(&mut meta, s_table, temp_var_selectors, even_bits);
 
         Flag1Config::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.flag1,
             temp_vars.c.word,
             flag,
@@ -577,7 +590,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let a_flag = meta.new_column();
         let flag2 = Flag2Config::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.flag2,
             temp_vars.c.word,
             flag,
@@ -589,12 +602,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             &mut meta,
             flag3_r,
             &[temp_var_selectors.out.flag3, temp_var_selectors.out.shift],
-            exe_len,
+            s_table,
             even_bits,
         );
         let flag3 = Flag3Config::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.flag3,
             temp_vars.a.word,
             temp_vars.b.word,
@@ -605,7 +618,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         SumConfig::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.sum,
             temp_vars.a.word,
             temp_vars.b.word,
@@ -616,7 +629,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         ModConfig::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.mod_,
             temp_vars.a.word,
             temp_vars.b.word,
@@ -634,7 +647,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 temp_var_selectors.out.xor,
                 temp_var_selectors.out.ssum,
             ],
-            exe_len,
+            s_table,
             even_bits,
         );
 
@@ -652,7 +665,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         ProdConfig::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.prod,
             temp_vars.a.word,
             temp_vars.b.word,
@@ -662,7 +675,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let signed_a = SignedConfig::configure(
             &mut meta,
-            exe_len,
+            s_table,
             &[temp_var_selectors.out.ssum],
             logic.a,
             even_bits,
@@ -672,13 +685,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             &mut meta,
             temp_vars.b.word,
             &[temp_var_selectors.out.sprod],
-            exe_len,
+            s_table,
             even_bits,
         );
 
         let signed_b = SignedConfig::configure(
             &mut meta,
-            exe_len,
+            s_table,
             &[temp_var_selectors.out.sprod],
             b_decomp,
             even_bits,
@@ -688,12 +701,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             &mut meta,
             temp_vars.c.word,
             &[temp_var_selectors.out.ssum],
-            exe_len,
+            s_table,
             even_bits,
         );
         let signed_c = SignedConfig::configure(
             &mut meta,
-            exe_len,
+            s_table,
             &[temp_var_selectors.out.ssum],
             c_decomp,
             even_bits,
@@ -701,7 +714,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let ssum = SSumConfig::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.ssum,
             signed_a,
             temp_vars.b.word,
@@ -712,7 +725,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let sprod = SProdConfig::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.sprod,
             signed_a,
             signed_b,
@@ -724,7 +737,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let a_power = meta.new_column();
         let shift = ShiftConfig::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.shift,
             temp_vars.a.word,
             temp_vars.b.word,
@@ -740,7 +753,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let b_flag = meta.new_column();
         let flag4 = Flag4Config::<WORD_BITS>::configure(
             &mut meta,
-            exe_len,
+            s_table,
             temp_var_selectors.out.flag4,
             signed_b,
             lsb_b,
@@ -750,9 +763,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         ExeConfig {
             first_line,
-            s_table,
-            s_trace,
-            exe_len,
+            extent: TraceSelector { s_table, s_trace },
             time,
             pc,
             opcode,
@@ -782,7 +793,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         config.temp_var_selectors.ch.unchanged_gate(
             meta,
-            config.exe_len,
+            config.extent,
             config.reg,
             config.pc,
             config.flag,
@@ -805,9 +816,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     ) -> Result<(), Error> {
         let ExeConfig {
             first_line,
-            s_table,
-            s_trace,
-            exe_len,
+            extent: TraceSelector { s_table, s_trace },
             time,
             pc,
             opcode,
@@ -852,11 +861,6 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                             .unwrap();
 
                         s_table.enable(&mut region, offset)?;
-                    }
-
-                    // TODO remove once the mock prover is improved
-                    for i in 0..trace.exe.len() - 1 {
-                        exe_len.enable(&mut region, i)?;
                     }
 
                     // Define the extent of the trace within the Exe table.
