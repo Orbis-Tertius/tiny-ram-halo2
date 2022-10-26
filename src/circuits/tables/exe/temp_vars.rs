@@ -7,7 +7,7 @@ use halo2_proofs::{
 use crate::{
     assign::ConstraintSys,
     circuits::tables::{
-        aux::{out::Out, TempVarSelectors},
+        aux::out::Out,
         even_bits::{EvenBitsConfig, EvenBitsTable},
     },
 };
@@ -28,13 +28,11 @@ pub struct TempVars<const WORD_BITS: u32> {
 
 impl<const WORD_BITS: u32> TempVars<WORD_BITS> {
     /// `s_table` defines the maxium extent of the Exe table.
-    /// `time` counts from 1, and is zero padded.
-    /// `time` defines the used portion of the table in which the decompositions are enforced
     pub fn configure<const REG_COUNT: usize, F: FieldExt>(
         meta: &mut impl ConstraintSys<F, Column<Advice>>,
         // A complex selector denoting the extent in rows of the table to decompse.
         s_table: Selector,
-        temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+        out: Out<Column<Advice>>,
         even_bits: EvenBitsTable<WORD_BITS>,
     ) -> Self {
         // Temporary vars
@@ -49,23 +47,19 @@ impl<const WORD_BITS: u32> TempVars<WORD_BITS> {
         // In the future we may want to optimize column count by reusing `EvenBitsConfig{even, odd}`.
         // The table below describes when eacj decomposition is in use.
 
-        let TempVarSelectors {
-            out:
-                Out {
-                    and,
-                    xor,
-                    or,
-                    sum,
-                    ssum,
-                    prod,
-                    sprod,
-                    mod_,
-                    shift,
-                    flag4,
-                    ..
-                },
+        let Out {
+            and,
+            xor,
+            or,
+            sum,
+            ssum,
+            prod,
+            sprod,
+            mod_,
+            shift,
+            flag4,
             ..
-        } = temp_var_selectors;
+        } = out;
 
         // Constraints which rely on a's even_bits decomposition:
         // MOD (UDiv non_det must be valid word)

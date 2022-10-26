@@ -44,7 +44,6 @@ pub struct TempVarSelectors<const REG_COUNT: usize, C: Copy> {
     pub b: SelectorsB<REG_COUNT, C>,
     pub c: SelectorsC<REG_COUNT, C>,
     pub d: SelectorsD<REG_COUNT, C>,
-    pub out: Out<C>,
     pub ch: ChangedSelectors<REG_COUNT, C>,
 }
 
@@ -58,7 +57,6 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
             b: SelectorsB::new_columns::<F, M>(meta),
             c: SelectorsC::new_columns::<F, M>(meta),
             d: SelectorsD::new_columns::<F, M>(meta),
-            out: Out::new(|| meta.new_column()),
             ch: ChangedSelectors::new(|| meta.new_column()),
         }
     }
@@ -75,14 +73,12 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
             b,
             c,
             d,
-            out,
             ch,
         } = self;
         a.push_cells(region, vals.a.into());
         b.push_cells(region, vals.b.into());
         c.push_cells(region, vals.c.into());
         d.push_cells(region, vals.d.into());
-        out.push_cells(region, vals.out.convert()).unwrap();
         ch.push_cells(region, vals.ch.convert()).unwrap();
     }
 }

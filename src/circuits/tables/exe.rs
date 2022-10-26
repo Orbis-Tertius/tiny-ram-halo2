@@ -28,6 +28,7 @@ use self::temp_vars::TempVars;
 
 use super::{
     aux::{
+        out::Out,
         out_table::{CorrectOutConfig, OutTable},
         SelectorsA, SelectorsB, SelectorsC, SelectorsD, TempVarSelectors,
         TempVarSelectorsRow,
@@ -98,6 +99,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     temp_vars: TempVars<WORD_BITS>,
 
     temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+    out: Out<Column<Advice>>,
 
     // Auxiliary memory columns
     address: Column<Advice>,
@@ -557,6 +559,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let value = meta.advice_column();
         let temp_var_selectors =
             TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
+        let out = Out::new(|| meta.new_column());
 
         let first_line = meta.selector();
         let s_table = meta.complex_selector();
@@ -565,24 +568,17 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let even_bits = EvenBitsTable::new(meta);
         let pow_table = PowTable::new(meta);
         let out_table = OutTable::new(meta);
-        CorrectOutConfig::configure(
-            meta,
-            opcode,
-            temp_var_selectors.out,
-            s_trace,
-            s_table,
-            out_table,
-        );
+        CorrectOutConfig::configure(meta, opcode, out, s_trace, s_table, out_table);
 
         let mut meta = TrackColumns::new(meta);
 
         let temp_vars =
-            TempVars::configure(&mut meta, s_table, temp_var_selectors, even_bits);
+            TempVars::configure::<REG_COUNT, F>(&mut meta, s_table, out, even_bits);
 
         Flag1Config::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.flag1,
+            out.flag1,
             temp_vars.c.word,
             flag,
         );
@@ -591,7 +587,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let flag2 = Flag2Config::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.flag2,
+            out.flag2,
             temp_vars.c.word,
             flag,
             a_flag,
@@ -601,14 +597,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let r_decompose = EvenBitsConfig::configure(
             &mut meta,
             flag3_r,
-            &[temp_var_selectors.out.flag3, temp_var_selectors.out.shift],
+            &[out.flag3, out.shift],
             s_table,
             even_bits,
         );
         let flag3 = Flag3Config::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.flag3,
+            out.flag3,
             temp_vars.a.word,
             temp_vars.b.word,
             temp_vars.c.word,
@@ -619,7 +615,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         SumConfig::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.sum,
+            out.sum,
             temp_vars.a.word,
             temp_vars.b.word,
             temp_vars.c.word,
@@ -630,7 +626,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         ModConfig::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.mod_,
+            out.mod_,
             temp_vars.a.word,
             temp_vars.b.word,
             temp_vars.c.word,
@@ -642,11 +638,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             &mut meta,
             temp_vars.a.word,
             // The even_bits decomposition of `a` should be enabled anytime signed `a` is.
-            &[
-                temp_var_selectors.out.and,
-                temp_var_selectors.out.xor,
-                temp_var_selectors.out.ssum,
-            ],
+            &[out.and, out.xor, out.ssum],
             s_table,
             even_bits,
         );
@@ -655,9 +647,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             &mut meta,
             even_bits,
             s_table,
-            temp_var_selectors.out.and,
-            temp_var_selectors.out.xor,
-            temp_var_selectors.out.or,
+            out.and,
+            out.xor,
+            out.or,
             a_decomp,
             temp_vars.b.word,
             temp_vars.c.word,
@@ -666,7 +658,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         ProdConfig::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.prod,
+            out.prod,
             temp_vars.a.word,
             temp_vars.b.word,
             temp_vars.c.word,
@@ -676,7 +668,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let signed_a = SignedConfig::configure(
             &mut meta,
             s_table,
-            &[temp_var_selectors.out.ssum],
+            &[out.ssum],
             logic.a,
             even_bits,
         );
@@ -684,7 +676,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let b_decomp = EvenBitsConfig::configure(
             &mut meta,
             temp_vars.b.word,
-            &[temp_var_selectors.out.sprod],
+            &[out.sprod],
             s_table,
             even_bits,
         );
@@ -692,7 +684,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let signed_b = SignedConfig::configure(
             &mut meta,
             s_table,
-            &[temp_var_selectors.out.sprod],
+            &[out.sprod],
             b_decomp,
             even_bits,
         );
@@ -700,14 +692,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let c_decomp = EvenBitsConfig::configure(
             &mut meta,
             temp_vars.c.word,
-            &[temp_var_selectors.out.ssum],
+            &[out.ssum],
             s_table,
             even_bits,
         );
         let signed_c = SignedConfig::configure(
             &mut meta,
             s_table,
-            &[temp_var_selectors.out.ssum],
+            &[out.ssum],
             c_decomp,
             even_bits,
         );
@@ -715,7 +707,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let ssum = SSumConfig::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.ssum,
+            out.ssum,
             signed_a,
             temp_vars.b.word,
             signed_c,
@@ -726,7 +718,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let sprod = SProdConfig::<WORD_BITS>::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.sprod,
+            out.sprod,
             signed_a,
             signed_b,
             signed_c,
@@ -738,7 +730,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let shift = ShiftConfig::configure(
             &mut meta,
             s_table,
-            temp_var_selectors.out.shift,
+            out.shift,
             temp_vars.a.word,
             temp_vars.b.word,
             temp_vars.c.word,
@@ -752,13 +744,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let lsb_b = meta.new_column();
         let b_flag = meta.new_column();
         let flag4 = Flag4Config::<WORD_BITS>::configure(
-            &mut meta,
-            s_table,
-            temp_var_selectors.out.flag4,
-            signed_b,
-            lsb_b,
-            b_flag,
-            flag,
+            &mut meta, s_table, out.flag4, signed_b, lsb_b, b_flag, flag,
         );
 
         ExeConfig {
@@ -772,6 +758,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             flag,
             temp_vars,
             temp_var_selectors,
+            out,
             address,
             value,
             logic,
@@ -825,6 +812,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             flag,
             temp_vars,
             temp_var_selectors,
+            out,
             address,
             value,
             logic,
@@ -963,6 +951,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 &mut (&mut region, offset),
                                 temp_var_selectors_row,
                             );
+
+                            out.push_cells(
+                                &mut (&mut region, offset),
+                                temp_var_selectors_row.out.convert(),
+                            )
+                            .unwrap();
 
                             let (ta, tb, tc, td) = temp_var_selectors_row
                                 .push_temp_var_vals::<F, WORD_BITS>(
