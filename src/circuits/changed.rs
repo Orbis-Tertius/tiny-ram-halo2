@@ -60,6 +60,19 @@ impl<const REG_COUNT: usize, T> ChangedSelectors<REG_COUNT, T> {
             flag: self.flag.into(),
         }
     }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(T) -> B,
+    ) -> ChangedSelectors<REG_COUNT, B> where T: Copy {
+        let Self { regs, pc, flag } = self;
+
+        ChangedSelectors {
+            pc: f(pc),
+            flag: f(flag),
+            regs: regs.map(&mut f),
+        }
+    }
 }
 
 impl<const REG_COUNT: usize> ChangedSelectors<REG_COUNT, Column<Advice>> {

@@ -285,6 +285,13 @@ impl<const REG_COUNT: usize, T> Registers<REG_COUNT, T> {
         // See Rust's array initialization semantics.
         Registers([0; REG_COUNT].map(|_| f()))
     }
+
+    pub fn map<B>(&self, mut f: impl FnMut(T) -> B) -> Registers<REG_COUNT, B>
+    where
+        T: Copy,
+    {
+        Registers(self.0.map(&mut f))
+    }
 }
 
 impl<const REG_COUNT: usize, T> From<[T; REG_COUNT]> for Registers<REG_COUNT, T> {

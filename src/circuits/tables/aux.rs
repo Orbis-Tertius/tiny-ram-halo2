@@ -68,18 +68,26 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
     ) where
         C: Debug,
     {
-        let Self {
-            a,
-            b,
-            c,
-            d,
-            ch,
-        } = self;
+        let Self { a, b, c, d, ch } = self;
         a.push_cells(region, vals.a.into());
         b.push_cells(region, vals.b.into());
         c.push_cells(region, vals.c.into());
         d.push_cells(region, vals.d.into());
         ch.push_cells(region, vals.ch.convert()).unwrap();
+    }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(C) -> B,
+    ) -> TempVarSelectors<REG_COUNT, B> {
+        let Self { a, b, c, d, ch } = self;
+        TempVarSelectors {
+            a: a.map(&mut f),
+            b: b.map(&mut f),
+            c: c.map(&mut f),
+            d: d.map(&mut f),
+            ch: ch.map(&mut f),
+        }
     }
 }
 
@@ -632,6 +640,28 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
             non_det: meta.new_column(),
         }
     }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(C) -> B,
+    ) -> SelectorsA<REG_COUNT, B> {
+        let Self {
+            pc_next,
+            reg,
+            reg_next,
+            a,
+            v_addr,
+            non_det,
+        } = self;
+        SelectorsA {
+            pc_next: f(pc_next),
+            reg: reg.map(&mut f),
+            reg_next: reg_next.map(&mut f),
+            a: f(a),
+            v_addr: f(v_addr),
+            non_det: f(non_det),
+        }
+    }
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
@@ -717,6 +747,33 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsB<REG_COUNT, C> {
             a: meta.new_column(),
             non_det: meta.new_column(),
             max_word: meta.new_column(),
+        }
+    }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(C) -> B,
+    ) -> SelectorsB<REG_COUNT, B> {
+        let Self {
+            pc,
+            pc_next,
+            pc_plus_one,
+            reg,
+            reg_next,
+            a,
+            non_det,
+            max_word,
+        } = self;
+
+        SelectorsB {
+            pc: f(pc),
+            pc_next: f(pc_next),
+            pc_plus_one: f(pc_plus_one),
+            reg: reg.map(&mut f),
+            reg_next: reg_next.map(&mut f),
+            a: f(a),
+            non_det: f(non_det),
+            max_word: f(max_word),
         }
     }
 }
@@ -826,6 +883,27 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsC<REG_COUNT, C> {
             zero: meta.new_column(),
         }
     }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(C) -> B,
+    ) -> SelectorsC<REG_COUNT, B> {
+        let Self {
+            reg,
+            reg_next,
+            a,
+            non_det,
+            zero,
+        } = self;
+
+        SelectorsC {
+            reg: reg.map(&mut f),
+            reg_next: reg_next.map(&mut f),
+            a: f(a),
+            non_det: f(non_det),
+            zero: f(zero),
+        }
+    }
 }
 
 impl<const REG_COUNT: usize> From<SelectionC> for SelectorsC<REG_COUNT, bool> {
@@ -930,6 +1008,31 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsD<REG_COUNT, C> {
             non_det: meta.new_column(),
             zero: meta.new_column(),
             one: meta.new_column(),
+        }
+    }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(C) -> B,
+    ) -> SelectorsD<REG_COUNT, B> {
+        let Self {
+            pc,
+            reg,
+            reg_next,
+            a,
+            non_det,
+            zero,
+            one,
+        } = self;
+
+        SelectorsD {
+            pc: f(pc),
+            reg: reg.map(&mut f),
+            reg_next: reg_next.map(&mut f),
+            a: f(a),
+            non_det: f(non_det),
+            zero: f(zero),
+            one: f(one),
         }
     }
 }
