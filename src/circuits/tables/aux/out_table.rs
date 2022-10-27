@@ -127,7 +127,7 @@ impl OutTable {
             )
             .unwrap();
 
-        self.out.push_cells(&mut (table, offset), out).unwrap();
+        self.out.push_cells(table, offset, out).unwrap();
     }
 
     pub fn alloc_table<F: FieldExt>(

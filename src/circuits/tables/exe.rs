@@ -947,13 +947,15 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     &step.instruction,
                                 );
 
-                            temp_var_selectors.push_cells(
-                                &mut (&mut region, offset),
+                            temp_var_selectors.assign_cells(
+                                &mut region,
+                                offset,
                                 temp_var_selectors_row,
                             );
 
                             out.push_cells(
-                                &mut (&mut region, offset),
+                                &mut region,
+                                offset,
                                 temp_var_selectors_row.out.convert(),
                             )
                             .unwrap();

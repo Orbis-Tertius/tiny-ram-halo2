@@ -2,13 +2,11 @@ use std::fmt::Debug;
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    plonk::{
-        self, Advice, Column, ConstraintSystem, Constraints, Expression, Selector,
-    },
+    plonk::{self, Advice, Column, ConstraintSystem, Constraints, Expression},
     poly::Rotation,
 };
 
-use crate::{assign::PushRow, trace::Registers};
+use crate::{assign::AssignCell, trace::Registers};
 
 use super::tables::exe::TraceSelector;
 
@@ -34,9 +32,10 @@ impl<const REG_COUNT: usize, T> ChangedSelectors<REG_COUNT, T> {
         }
     }
 
-    pub fn push_cells<F: FieldExt, R: PushRow<F, T>>(
+    pub fn set_cells<F: FieldExt, R: AssignCell<F, T>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: ChangedSelectors<REG_COUNT, bool>,
     ) -> Result<(), plonk::Error>
     where
@@ -45,10 +44,10 @@ impl<const REG_COUNT: usize, T> ChangedSelectors<REG_COUNT, T> {
         let Self { regs, pc, flag } = self;
 
         for (rc, rv) in regs.0.into_iter().zip(vals.regs.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
-        region.push_cell(pc, vals.pc.into())?;
-        region.push_cell(flag, vals.flag.into())?;
+        region.assign_cell(pc, offset, vals.pc.into())?;
+        region.assign_cell(flag, offset, vals.flag.into())?;
 
         Ok(())
     }
@@ -64,7 +63,10 @@ impl<const REG_COUNT: usize, T> ChangedSelectors<REG_COUNT, T> {
     pub fn map<B: Copy>(
         self,
         mut f: impl FnMut(T) -> B,
-    ) -> ChangedSelectors<REG_COUNT, B> where T: Copy {
+    ) -> ChangedSelectors<REG_COUNT, B>
+    where
+        T: Copy,
+    {
         let Self { regs, pc, flag } = self;
 
         ChangedSelectors {

@@ -1,7 +1,7 @@
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{AssignedCell, Region, Table, Value},
-    plonk::{Advice, Column, ConstraintSystem, Fixed, Instance, TableColumn},
+    plonk::{Advice, Column, ConstraintSystem, Error, Fixed, Instance, TableColumn},
 };
 
 pub trait NewColumn<C: Copy> {
@@ -70,53 +70,57 @@ where
     }
 }
 
-pub trait PushRow<F, C> {
+pub trait AssignCell<F, C> {
     type AssignedRef;
-    fn push_cell(
+    fn assign_cell(
         &mut self,
         column: C,
+        offset: usize,
         f: F,
-    ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error>;
+    ) -> Result<Self::AssignedRef, Error>;
 }
 
 /// An impl of push_cell for `(Region, offset)`.
-impl<'r, F: FieldExt>
-    PushRow<F, halo2_proofs::plonk::Column<halo2_proofs::plonk::Advice>>
-    for (&mut Region<'r, F>, usize)
-{
+impl<'r, F: FieldExt> AssignCell<F, Column<Advice>> for Region<'r, F> {
     type AssignedRef = AssignedCell<F, F>;
-    fn push_cell(
+    fn assign_cell(
         &mut self,
         column: Column<Advice>,
+        offset: usize,
         f: F,
-    ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
-        self.0
-            .assign_advice(|| "", column, self.1, &mut || Value::known(f))
+    ) -> Result<Self::AssignedRef, Error> {
+        self.assign_advice(|| "", column, offset, &mut || Value::known(f))
     }
 }
 
 /// An impl of push_cell for `(Region, offset)`.
-impl<'r, F: FieldExt> PushRow<F, TableColumn> for (&mut Table<'r, F>, usize) {
+impl<'r, F: FieldExt> AssignCell<F, TableColumn> for Table<'r, F> {
     type AssignedRef = ();
-    fn push_cell(
+    fn assign_cell(
         &mut self,
         column: TableColumn,
+        offset: usize,
         f: F,
-    ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
-        self.0
-            .assign_cell(|| "", column, self.1, &mut || Value::known(f))
+    ) -> Result<Self::AssignedRef, Error> {
+        self.assign_cell(|| "", column, offset, &mut || Value::known(f))
     }
 }
 
-impl<F> PushRow<F, PseudoColumn> for PseudoMeta<F> {
+impl<F> AssignCell<F, PseudoColumn> for PseudoMeta<F> {
     type AssignedRef = (PseudoColumn, usize);
-    fn push_cell(
+    fn assign_cell(
         &mut self,
         column: PseudoColumn,
+        offset: usize,
         f: F,
-    ) -> Result<Self::AssignedRef, halo2_proofs::plonk::Error> {
+    ) -> Result<Self::AssignedRef, Error> {
+        // We only support assigning rows in order.
+        assert_eq!(
+            self.0.get(column.0).expect("Column Not Allocated").len(),
+            offset
+        );
         self.0[column.0].push(f);
-        Ok((column, self.0[column.0].len() - 1))
+        Ok((column, offset))
     }
 }
 

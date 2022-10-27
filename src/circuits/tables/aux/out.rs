@@ -1,6 +1,6 @@
 use halo2_proofs::{arithmetic::FieldExt, plonk};
 
-use crate::{assign::PushRow, instructions::*};
+use crate::{assign::AssignCell, instructions::*};
 
 pub trait OutPut {
     const OUT: Out<bool>;
@@ -85,9 +85,10 @@ impl<T> Out<T> {
 }
 
 impl<C> Out<C> {
-    pub fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    pub fn push_cells<F: FieldExt, R: AssignCell<F, C>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: Out<bool>,
     ) -> Result<(), plonk::Error> {
         let Self {
@@ -106,19 +107,19 @@ impl<C> Out<C> {
             flag4,
         } = self;
 
-        region.push_cell(and, vals.and.into())?;
-        region.push_cell(xor, vals.xor.into())?;
-        region.push_cell(or, vals.or.into())?;
-        region.push_cell(sum, vals.sum.into())?;
-        region.push_cell(prod, vals.prod.into())?;
-        region.push_cell(ssum, vals.ssum.into())?;
-        region.push_cell(sprod, vals.sprod.into())?;
-        region.push_cell(mod_, vals.mod_.into())?;
-        region.push_cell(shift, vals.shift.into())?;
-        region.push_cell(flag1, vals.flag1.into())?;
-        region.push_cell(flag2, vals.flag2.into())?;
-        region.push_cell(flag3, vals.flag3.into())?;
-        region.push_cell(flag4, vals.flag4.into())?;
+        region.assign_cell(and, offset, vals.and.into())?;
+        region.assign_cell(xor, offset, vals.xor.into())?;
+        region.assign_cell(or, offset, vals.or.into())?;
+        region.assign_cell(sum, offset, vals.sum.into())?;
+        region.assign_cell(prod, offset, vals.prod.into())?;
+        region.assign_cell(ssum, offset, vals.ssum.into())?;
+        region.assign_cell(sprod, offset, vals.sprod.into())?;
+        region.assign_cell(mod_, offset, vals.mod_.into())?;
+        region.assign_cell(shift, offset, vals.shift.into())?;
+        region.assign_cell(flag1, offset, vals.flag1.into())?;
+        region.assign_cell(flag2, offset, vals.flag2.into())?;
+        region.assign_cell(flag3, offset, vals.flag3.into())?;
+        region.assign_cell(flag4, offset, vals.flag4.into())?;
 
         Ok(())
     }

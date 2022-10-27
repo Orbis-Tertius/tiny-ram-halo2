@@ -7,7 +7,7 @@ use std::fmt::Debug;
 use halo2_proofs::arithmetic::FieldExt;
 
 use crate::{
-    assign::{NewColumn, PushRow},
+    assign::{AssignCell, NewColumn},
     circuits::{changed::ChangedSelectors, shift},
     instructions::*,
     trace::{self, *},
@@ -61,19 +61,20 @@ impl<const REG_COUNT: usize, C: Copy> TempVarSelectors<REG_COUNT, C> {
         }
     }
 
-    pub fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    pub fn assign_cells<F: FieldExt, R: AssignCell<F, C>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: TempVarSelectorsRow<REG_COUNT>,
     ) where
         C: Debug,
     {
         let Self { a, b, c, d, ch } = self;
-        a.push_cells(region, vals.a.into());
-        b.push_cells(region, vals.b.into());
-        c.push_cells(region, vals.c.into());
-        d.push_cells(region, vals.d.into());
-        ch.push_cells(region, vals.ch.convert()).unwrap();
+        a.assign_cells(region, offset, vals.a.into());
+        b.set_cells(region, offset, vals.b.into());
+        c.set_cells(region, offset, vals.c.into());
+        d.set_cells(region, offset, vals.d.into());
+        ch.set_cells(region, offset, vals.ch.convert()).unwrap();
     }
 
     pub fn map<B: Copy>(
@@ -665,9 +666,10 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
-    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    fn assign_cells<F: FieldExt, R: AssignCell<F, C>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: SelectorsA<REG_COUNT, bool>,
     ) {
         let Self {
@@ -679,18 +681,24 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsA<REG_COUNT, C> {
             non_det: temp_var_a,
         } = self;
 
-        region.push_cell(pc_next, vals.pc_next.into()).unwrap();
+        region
+            .assign_cell(pc_next, offset, vals.pc_next.into())
+            .unwrap();
 
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
         for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
 
-        region.push_cell(a, vals.a.into()).unwrap();
-        region.push_cell(v_addr, vals.v_addr.into()).unwrap();
-        region.push_cell(temp_var_a, vals.non_det.into()).unwrap();
+        region.assign_cell(a, offset, vals.a.into()).unwrap();
+        region
+            .assign_cell(v_addr, offset, vals.v_addr.into())
+            .unwrap();
+        region
+            .assign_cell(temp_var_a, offset, vals.non_det.into())
+            .unwrap();
     }
 }
 
@@ -806,9 +814,10 @@ impl<const REG_COUNT: usize> From<SelectionB> for SelectorsB<REG_COUNT, bool> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectorsB<REG_COUNT, C> {
-    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    fn set_cells<F: FieldExt, R: AssignCell<F, C>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: SelectorsB<REG_COUNT, bool>,
     ) {
         let Self {
@@ -822,22 +831,28 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsB<REG_COUNT, C> {
             max_word,
         } = self;
 
-        region.push_cell(pc, vals.pc.into()).unwrap();
-        region.push_cell(pc_next, vals.pc_next.into()).unwrap();
+        region.assign_cell(pc, offset, vals.pc.into()).unwrap();
         region
-            .push_cell(pc_plus_one, vals.pc_plus_one.into())
+            .assign_cell(pc_next, offset, vals.pc_next.into())
+            .unwrap();
+        region
+            .assign_cell(pc_plus_one, offset, vals.pc_plus_one.into())
             .unwrap();
 
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
         for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
 
-        region.push_cell(a, vals.a.into()).unwrap();
-        region.push_cell(max_word, vals.max_word.into()).unwrap();
-        region.push_cell(non_det, vals.non_det.into()).unwrap();
+        region.assign_cell(a, offset, vals.a.into()).unwrap();
+        region
+            .assign_cell(max_word, offset, vals.max_word.into())
+            .unwrap();
+        region
+            .assign_cell(non_det, offset, vals.non_det.into())
+            .unwrap();
     }
 }
 
@@ -928,9 +943,10 @@ impl<const REG_COUNT: usize> From<SelectionC> for SelectorsC<REG_COUNT, bool> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectorsC<REG_COUNT, C> {
-    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    fn set_cells<F: FieldExt, R: AssignCell<F, C>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: SelectorsC<REG_COUNT, bool>,
     ) {
         let Self {
@@ -942,15 +958,17 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsC<REG_COUNT, C> {
         } = self;
 
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
         for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
 
-        region.push_cell(a, vals.a.into()).unwrap();
-        region.push_cell(zero, vals.zero.into()).unwrap();
-        region.push_cell(non_det, vals.non_det.into()).unwrap();
+        region.assign_cell(a, offset, vals.a.into()).unwrap();
+        region.assign_cell(zero, offset, vals.zero.into()).unwrap();
+        region
+            .assign_cell(non_det, offset, vals.non_det.into())
+            .unwrap();
     }
 }
 
@@ -1067,9 +1085,10 @@ impl<const REG_COUNT: usize> From<SelectionD> for SelectorsD<REG_COUNT, bool> {
 }
 
 impl<const REG_COUNT: usize, C: Copy> SelectorsD<REG_COUNT, C> {
-    fn push_cells<F: FieldExt, R: PushRow<F, C>>(
+    fn set_cells<F: FieldExt, R: AssignCell<F, C>>(
         self,
         region: &mut R,
+        offset: usize,
         vals: SelectorsD<REG_COUNT, bool>,
     ) {
         let Self {
@@ -1082,17 +1101,19 @@ impl<const REG_COUNT: usize, C: Copy> SelectorsD<REG_COUNT, C> {
             one,
         } = self;
 
-        region.push_cell(pc, vals.pc.into()).unwrap();
+        region.assign_cell(pc, offset, vals.pc.into()).unwrap();
         for (rc, rv) in reg.0.into_iter().zip(vals.reg.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
         for (rc, rv) in reg_next.0.into_iter().zip(vals.reg_next.0.into_iter()) {
-            region.push_cell(rc, rv.into()).unwrap();
+            region.assign_cell(rc, offset, rv.into()).unwrap();
         }
 
-        region.push_cell(a, vals.a.into()).unwrap();
-        region.push_cell(zero, vals.zero.into()).unwrap();
-        region.push_cell(one, vals.one.into()).unwrap();
-        region.push_cell(non_det, vals.non_det.into()).unwrap();
+        region.assign_cell(a, offset, vals.a.into()).unwrap();
+        region.assign_cell(zero, offset, vals.zero.into()).unwrap();
+        region.assign_cell(one, offset, vals.one.into()).unwrap();
+        region
+            .assign_cell(non_det, offset, vals.non_det.into())
+            .unwrap();
     }
 }
