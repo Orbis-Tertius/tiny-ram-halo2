@@ -84,7 +84,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize, C: Copy + Debug>
         let ProgramLine {
             opcode,
             immediate,
-            temp_var_selectors: temp_vars,
+            temp_var_selectors,
         } = self;
 
         for (offset, inst) in program.0.iter().enumerate() {
@@ -98,7 +98,11 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize, C: Copy + Debug>
                     F::from_u128(inst.a().immediate().unwrap_or_default().into()),
                 )
                 .unwrap();
-            temp_vars.assign_cells(region, offset, TempVarSelectorsRow::from(inst));
+            temp_var_selectors.assign_cells(
+                region,
+                offset,
+                TempVarSelectorsRow::from(inst),
+            );
         }
     }
 
@@ -109,13 +113,13 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize, C: Copy + Debug>
         let Self {
             opcode,
             immediate,
-            temp_var_selectors: temp_vars,
+            temp_var_selectors,
         } = self;
 
         ProgramLine {
             opcode: f(opcode),
             immediate: f(immediate),
-            temp_var_selectors: temp_vars.map(f),
+            temp_var_selectors: temp_var_selectors.map(f),
         }
     }
 
@@ -217,7 +221,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ProgConfig<WORD_BITS, REG_COU
                         || "pc",
                         self.pc,
                         offset,
-                        || Value::known(F::from(offset as u64)),
+                        || Value::known(F::from(offset as u64 + 1)),
                     )?;
                 }
 
