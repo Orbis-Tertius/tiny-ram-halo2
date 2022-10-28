@@ -855,7 +855,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || format!("time: {}", offset + 1),
                                 time,
                                 offset,
-                                || Value::known(F::from(offset as u64 + 1)),
+                                || Value::known(F::from(offset as u64)),
                             )
                             .unwrap();
 
@@ -1144,7 +1144,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 }
 
 #[cfg(test)]
-mod tests {
+mod tiny_ram_circuit_tests {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::pasta::Fp;
     use proptest::{prop_compose, proptest};
@@ -1595,4 +1595,7 @@ mod tests {
             mock_prover_test::<8, 8>(mov_shr_answer(Word(a), Word(b)))
         }
     }
+
+    // TODO
+    // Add tests should fail tests
 }

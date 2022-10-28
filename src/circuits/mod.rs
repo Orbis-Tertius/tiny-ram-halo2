@@ -81,10 +81,9 @@ mod tests {
     use halo2_proofs::pasta::Fp;
     use proptest::{prop_compose, proptest};
 
-    use crate::{
-        circuits::tables::exe::ExeCircuit, instructions::*,
-        test_utils::gen_proofs_and_verify, trace::*,
-    };
+    use crate::{instructions::*, test_utils::gen_proofs_and_verify, trace::*};
+
+    use super::TinyRamCircuit;
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
         a: u32,
@@ -362,41 +361,11 @@ mod tests {
         )
     }
 
-    // #[test]
-    // fn circuit_layout_test() {
-    //     const WORD_BITS: u32 = 8;
-    //     const REG_COUNT: usize = 8;
-    //     let trace = Some(load_and_answer());
-
-    //     let k = 1 + WORD_BITS / 2;
-
-    //     // Instantiate the circuit with the private inputs.
-    //     let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace };
-    //     use plotters::prelude::*;
-    //     let root =
-    //         BitMapBackend::new("layout.png", (1920, 1080)).into_drawing_area();
-    //     root.fill(&WHITE).unwrap();
-    //     let root = root
-    //         .titled("Exe Circuit Layout", ("sans-serif", 60))
-    //         .unwrap();
-
-    //     halo2_proofs::dev::CircuitLayout::default()
-    //         .mark_equality_cells(true)
-    //         .show_equality_constraints(true)
-    //         // The first argument is the size parameter for the circuit.
-    //         .render::<Fp, _, _>(k, &circuit, &root)
-    //         .unwrap();
-
-    //     let dot_string = halo2_proofs::dev::circuit_dot_graph::<Fp, _>(&circuit);
-    //     let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
-    //     std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
-    // }
-
     fn mock_prover_test<const WORD_BITS: u32, const REG_COUNT: usize>(
         trace: Trace<WORD_BITS, REG_COUNT>,
     ) {
         let k = 2 + WORD_BITS / 2;
-        let circuit = ExeCircuit::<WORD_BITS, REG_COUNT> { trace: Some(trace) };
+        let circuit = TinyRamCircuit::<WORD_BITS, REG_COUNT> { trace: Some(trace) };
 
         // Given the correct public input, our circuit will verify.
         let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
@@ -418,9 +387,9 @@ mod tests {
         assert_eq!(l_and_ans.ans.0, 1);
 
         gen_proofs_and_verify::<8, _>(vec![
-            (ExeCircuit { trace: Some(ans) }, vec![]),
+            (TinyRamCircuit { trace: Some(ans) }, vec![]),
             (
-                ExeCircuit {
+                TinyRamCircuit {
                     trace: Some(l_and_ans),
                 },
                 vec![],
