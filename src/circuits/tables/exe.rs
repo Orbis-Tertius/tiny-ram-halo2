@@ -30,11 +30,11 @@ use super::{
     aux::{
         out::Out,
         out_table::{CorrectOutConfig, OutTable},
-        SelectorsA, SelectorsB, SelectorsC, SelectorsD, TempVarSelectors,
-        TempVarSelectorsRow,
+        SelectorsA, SelectorsB, SelectorsC, SelectorsD, TempVarSelectorsRow,
     },
     even_bits::{EvenBitsConfig, EvenBitsTable},
     pow::PowTable,
+    prog::ProgramLine,
     signed::SignedConfig,
 };
 
@@ -81,15 +81,14 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// A Selector that's enabled on only the first line of the Exe table
     first_line: Selector,
-    extent: TraceSelector,
+    pub extent: TraceSelector,
 
     /// Instruction count
     time: Column<Fixed>,
+
     /// Program count
-    pc: Column<Advice>,
-    /// `Exe_inst` in the paper.
-    opcode: Column<Advice>,
-    immediate: Column<Advice>,
+    pub pc: Column<Advice>,
+    pub program_line: ProgramLine<WORD_BITS, REG_COUNT, Column<Advice>>,
 
     // State
     reg: Registers<REG_COUNT, Column<Advice>>,
@@ -98,7 +97,7 @@ pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// Temporary variables a, b, c, d, and their even_bits decompositions.
     temp_vars: TempVars<WORD_BITS>,
 
-    temp_var_selectors: TempVarSelectors<REG_COUNT, Column<Advice>>,
+    /// Output selectors
     out: Out<Column<Advice>>,
 
     // Auxiliary memory columns
@@ -198,7 +197,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             let trace_len_next =
                 meta.query_advice(self.extent.s_trace, Rotation::next());
 
-            let opcode = meta.query_advice(self.opcode, Rotation::cur());
+            let opcode =
+                meta.query_advice(self.program_line.opcode, Rotation::cur());
 
             let contiguous = s_trace.clone() - trace_len_next;
             let may_change = r.clone() - (s_trace * r) + opcode - answer_opcode;
@@ -341,7 +341,8 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
     ) {
         meta.create_gate(leak_once(format!("tv.{}.a", temp_var_name)), |meta| {
             let s_immediate = meta.query_advice(immediate_sel, Rotation::cur());
-            let immediate = meta.query_advice(self.immediate, Rotation::cur());
+            let immediate =
+                meta.query_advice(self.program_line.immediate, Rotation::cur());
             let t_var_a = meta.query_advice(temp_var, Rotation::cur());
 
             let s_trace = self.extent.query(meta);
@@ -451,7 +452,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             a,
             v_addr,
             non_det: _,
-        } = self.temp_var_selectors.a;
+        } = self.program_line.temp_var_selectors.a;
 
         self.pc_next_gate(meta, pc_next, self.temp_vars.a.word, "a");
         self.reg_gate(meta, reg, self.temp_vars.a.word, "a");
@@ -470,7 +471,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             a,
             non_det: _,
             max_word,
-        } = self.temp_var_selectors.b;
+        } = self.program_line.temp_var_selectors.b;
 
         self.pc_gate(meta, pc, self.temp_vars.b.word, "b");
         self.pc_next_gate(meta, pc_next, self.temp_vars.b.word, "b");
@@ -488,7 +489,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             a,
             non_det: _,
             zero,
-        } = self.temp_var_selectors.c;
+        } = self.program_line.temp_var_selectors.c;
 
         self.reg_gate(meta, reg, self.temp_vars.c.word, "c");
         self.reg_next_gate(meta, reg_next, self.temp_vars.c.word, "c");
@@ -505,7 +506,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
             non_det: _,
             zero,
             one,
-        } = self.temp_var_selectors.d;
+        } = self.program_line.temp_var_selectors.d;
 
         self.pc_gate(meta, pc, self.temp_vars.d.word, "d");
         self.reg_gate(meta, reg, self.temp_vars.d.word, "d");
@@ -534,7 +535,16 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
 impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     ExeChip<F, WORD_BITS, REG_COUNT>
 {
-    fn construct(config: ExeConfig<WORD_BITS, REG_COUNT>) -> Self {
+    pub fn construct(
+        layouter: &mut impl Layouter<F>,
+        config: ExeConfig<WORD_BITS, REG_COUNT>,
+    ) -> Self {
+        config.even_bits.alloc_table(layouter).unwrap();
+
+        config.pow_table.alloc_table(layouter).unwrap();
+
+        config.out_table.alloc_table(layouter).unwrap();
+
         Self {
             config,
             _marker: PhantomData,
@@ -548,17 +558,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         let pc = meta.advice_column();
 
-        let opcode = meta.advice_column();
-
-        let immediate = meta.advice_column();
+        let program_line = ProgramLine::configure::<F, _>(meta);
 
         let reg = Registers::init_with(|| meta.advice_column());
 
         let flag = meta.advice_column();
         let address = meta.advice_column();
         let value = meta.advice_column();
-        let temp_var_selectors =
-            TempVarSelectors::new::<F, ConstraintSystem<F>>(meta);
         let out = Out::new(|| meta.new_column());
 
         let first_line = meta.selector();
@@ -568,7 +574,14 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let even_bits = EvenBitsTable::new(meta);
         let pow_table = PowTable::new(meta);
         let out_table = OutTable::new(meta);
-        CorrectOutConfig::configure(meta, opcode, out, s_trace, s_table, out_table);
+        CorrectOutConfig::configure(
+            meta,
+            program_line.opcode,
+            out,
+            s_trace,
+            s_table,
+            out_table,
+        );
 
         let mut meta = TrackColumns::new(meta);
 
@@ -752,12 +765,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             extent: TraceSelector { s_table, s_trace },
             time,
             pc,
-            opcode,
-            immediate,
+            program_line,
             reg,
             flag,
             temp_vars,
-            temp_var_selectors,
             out,
             address,
             value,
@@ -775,10 +786,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         }
     }
 
-    fn configure(meta: &mut ConstraintSystem<F>) -> ExeConfig<WORD_BITS, REG_COUNT> {
+    pub fn configure(
+        meta: &mut ConstraintSystem<F>,
+    ) -> ExeConfig<WORD_BITS, REG_COUNT> {
         let config = Self::configure_instructions(meta);
 
-        config.temp_var_selectors.ch.unchanged_gate(
+        config.program_line.temp_var_selectors.ch.unchanged_gate(
             meta,
             config.extent,
             config.reg,
@@ -796,7 +809,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         config
     }
 
-    fn assign_trace(
+    pub fn assign_trace(
         &self,
         mut layouter: impl Layouter<F>,
         trace: &Trace<WORD_BITS, REG_COUNT>,
@@ -806,12 +819,10 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             extent: TraceSelector { s_table, s_trace },
             time,
             pc,
-            opcode,
-            immediate,
+            program_line,
             reg,
             flag,
             temp_vars,
-            temp_var_selectors,
             out,
             address,
             value,
@@ -892,7 +903,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         region
                             .assign_advice(
                                 || format!("opcode: {}", step.instruction.opcode()),
-                                opcode,
+                                program_line.opcode,
                                 offset,
                                 || {
                                     Value::known(F::from_u128(
@@ -911,7 +922,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         region
                             .assign_advice(
                                 || format!("immediate: {}", immediate_v),
-                                immediate,
+                                program_line.immediate,
                                 offset,
                                 || Value::known(F::from_u128(immediate_v)),
                             )
@@ -947,7 +958,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                     &step.instruction,
                                 );
 
-                            temp_var_selectors.assign_cells(
+                            program_line.temp_var_selectors.assign_cells(
                                 &mut region,
                                 offset,
                                 temp_var_selectors_row,
@@ -1122,35 +1133,13 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
         config: Self::Config,
         mut layouter: impl Layouter<F>,
     ) -> Result<(), Error> {
-        let exe_chip = ExeChip::<F, WORD_BITS, REG_COUNT>::construct(config);
-
-        exe_chip
-            .config
-            .even_bits
-            .alloc_table(&mut layouter)
-            .unwrap();
-
-        exe_chip
-            .config
-            .pow_table
-            .alloc_table(&mut layouter)
-            .unwrap();
-
-        exe_chip
-            .config
-            .out_table
-            .alloc_table(&mut layouter)
-            .unwrap();
+        let exe_chip =
+            ExeChip::<F, WORD_BITS, REG_COUNT>::construct(&mut layouter, config);
 
         if let Some(trace) = &self.trace {
-            exe_chip
-                .assign_trace(layouter.namespace(|| "Trace"), trace)
-                .unwrap();
-
-            Ok(())
-        } else {
-            Ok(())
-        }
+            exe_chip.assign_trace(layouter.namespace(|| "Trace"), trace)?
+        };
+        Ok(())
     }
 }
 

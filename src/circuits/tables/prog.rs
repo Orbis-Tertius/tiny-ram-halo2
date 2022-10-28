@@ -1,300 +1,230 @@
-use std::{fmt::Debug, marker::PhantomData};
+use std::fmt::Debug;
 
 use halo2_proofs::{
     arithmetic::FieldExt,
-    circuit::{Chip, Layouter, SimpleFloorPlanner},
-    plonk::{Advice, Circuit, Column, ConstraintSystem, Error, Fixed, Instance},
+    circuit::{Layouter, Value},
+    plonk::{
+        Advice, Column, ConstraintSystem, DynamicTable, DynamicTableMap, Error,
+        Fixed, Instance, Selector,
+    },
+    poly::Rotation,
 };
 
 use crate::{
-    assign::{AssignCell, NewColumn, PseudoMeta},
+    assign::{AssignCell, NewColumn, PseudoColumn, PseudoMeta},
+    instructions::Instruction,
     trace,
 };
 
 use super::aux::{TempVarSelectors, TempVarSelectorsRow};
 
-pub struct ProgChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
-    config: ProgConfig<WORD_BITS, REG_COUNT>,
-    _marker: PhantomData<F>,
+#[derive(Debug, Clone, Copy)]
+pub struct ProgramLine<const WORD_BITS: u32, const REG_COUNT: usize, C: Copy> {
+    pub opcode: C,
+    pub immediate: C,
+    pub temp_var_selectors: TempVarSelectors<REG_COUNT, C>,
 }
 
-#[derive(Debug, Clone)]
-pub struct ProgInput<const WORD_BITS: u32, const REG_COUNT: usize, C: Copy> {
-    opcode: C,
-    immediate: C,
-    temp_vars: TempVarSelectors<REG_COUNT, C>,
-}
-
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ProgConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
-    input: ProgInput<WORD_BITS, REG_COUNT, Column<Instance>>,
-    table: ProgInput<WORD_BITS, REG_COUNT, Column<Advice>>,
+    s_prog: Selector,
+    input: ProgramLine<WORD_BITS, REG_COUNT, Column<Instance>>,
+
+    dyn_table: DynamicTable,
+    table: ProgramLine<WORD_BITS, REG_COUNT, Column<Advice>>,
     pc: Column<Fixed>,
 }
 
+pub fn program_instance<
+    const WORD_BITS: u32,
+    const REG_COUNT: usize,
+    F: FieldExt,
+>(
+    mut program: trace::Program,
+) -> Vec<Vec<F>> {
+    let max_program_len = ProgConfig::<WORD_BITS, REG_COUNT>::TABLE_LEN;
+    let last_inst = *program.0.last().expect("Empty programs are invalid");
+    assert!(matches!(last_inst, Instruction::Answer(_)));
+    assert!(program.0.len() <= max_program_len);
+
+    for _ in 0..(program.0.len() - max_program_len) {
+        // Fill the remainder of the program space by repeating the terminal instruction (Answer).
+        program.0.push(last_inst);
+    }
+
+    let mut meta = PseudoMeta::default();
+    let input_cols: ProgramLine<WORD_BITS, REG_COUNT, PseudoColumn> =
+        ProgramLine::configure::<F, _>(&mut meta);
+    input_cols.assign_cells(&mut meta, &program);
+    meta.0
+}
+
 impl<const WORD_BITS: u32, const REG_COUNT: usize, C: Copy + Debug>
-    ProgInput<WORD_BITS, REG_COUNT, C>
+    ProgramLine<WORD_BITS, REG_COUNT, C>
 {
+    pub fn configure<F: FieldExt, M: NewColumn<C>>(
+        meta: &mut M,
+    ) -> ProgramLine<WORD_BITS, REG_COUNT, C> {
+        let opcode = meta.new_column();
+        let immediate = meta.new_column();
+        let temp_vars = TempVarSelectors::new::<F, M>(meta);
+
+        ProgramLine {
+            opcode,
+            immediate,
+            temp_var_selectors: temp_vars,
+        }
+    }
+
+    pub fn assign_cells<F: FieldExt, R: AssignCell<F, C>>(
+        self,
+        region: &mut R,
+        program: &trace::Program,
+    ) {
+        let ProgramLine {
+            opcode,
+            immediate,
+            temp_var_selectors: temp_vars,
+        } = self;
+
+        for (offset, inst) in program.0.iter().enumerate() {
+            region
+                .assign_cell(opcode, offset, F::from_u128(inst.opcode()))
+                .unwrap();
+            region
+                .assign_cell(
+                    immediate,
+                    offset,
+                    F::from_u128(inst.a().immediate().unwrap_or_default().into()),
+                )
+                .unwrap();
+            temp_vars.assign_cells(region, offset, TempVarSelectorsRow::from(inst));
+        }
+    }
+
+    pub fn map<B: Copy>(
+        self,
+        mut f: impl FnMut(C) -> B,
+    ) -> ProgramLine<WORD_BITS, REG_COUNT, B> {
+        let Self {
+            opcode,
+            immediate,
+            temp_var_selectors: temp_vars,
+        } = self;
+
+        ProgramLine {
+            opcode: f(opcode),
+            immediate: f(immediate),
+            temp_var_selectors: temp_vars.map(f),
+        }
+    }
+
+    pub fn to_vec(self) -> Vec<C> {
+        let mut v = Vec::with_capacity(30);
+        self.map(|c| v.push(c));
+        v
+    }
+}
+
+impl<const WORD_BITS: u32, const REG_COUNT: usize> ProgConfig<WORD_BITS, REG_COUNT> {
     /// Currently this is the same as `ExeConfig::TABLE_LEN`.
     /// Programs will usually be much smaller than traces,
     /// so we should reduce this to allow stacking.
     const TABLE_LEN: usize = 2usize.pow(WORD_BITS / 2);
 
-    // This could be a method on `ProgConfig`,
-    // but that would require specifying types when calling this method.
-    fn new_columns<F: FieldExt, M: NewColumn<C>>(
-        meta: &mut M,
-    ) -> ProgInput<WORD_BITS, REG_COUNT, C> {
-        let opcode = meta.new_column();
-        let immediate = meta.new_column();
-        let temp_vars = TempVarSelectors::new::<F, M>(meta);
+    pub fn configure<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+        let s_prog = meta.selector();
+        let input = ProgramLine::configure::<F, _>(meta);
 
-        ProgInput {
-            opcode,
-            immediate,
-            temp_vars,
+        let table = ProgramLine::configure::<F, _>(meta);
+        let pc = meta.fixed_column();
+        let dyn_table = meta.create_dynamic_table(
+            "Prog Table",
+            &[pc],
+            table.to_vec().as_slice(),
+        );
+
+        input.map(|c| meta.enable_equality(c));
+        table.map(|c| meta.enable_equality(c));
+
+        Self {
+            s_prog,
+            input,
+            dyn_table,
+            table,
+            pc,
         }
     }
 
-    // pub fn program<'a, F: FieldExt, M: NewColumn<C>>(
-    //     mut meta: &'a mut M,
-    //     program: &trace::Program,
-    // ) where
-    //     (&'a mut M, usize): SetRow<F, C>,
-    // {
-    //     let ProgInput {
-    //         opcode,
-    //         immediate,
-    //         temp_vars,
-    //     } = Self::new_columns::<F, M>(meta);
+    pub fn lookup<F: FieldExt>(
+        &self,
+        meta: &mut ConstraintSystem<F>,
+        s_trace: Column<Advice>,
+        pc: Column<Advice>,
+        exe_line: ProgramLine<WORD_BITS, REG_COUNT, Column<Advice>>,
+    ) {
+        meta.lookup_dynamic(&self.dyn_table, |meta| {
+            let s_trace = meta.query_advice(s_trace, Rotation::cur());
 
-    //     for (pc_v, inst) in program.0.iter().enumerate() {
-    //         (meta, pc_v).set_cell(opcode, F::from_u128(inst.opcode())).unwrap();
-    //         (  meta, pc_v).set_cell(
-    //             immediate,
-    //             F::from_u128(inst.a().immediate().unwrap_or_default().into()),
-    //         )
-    //         .unwrap();
-    //         temp_vars.set_cells(&mut (meta, pc_v), TempVarSelectorsRow::from(inst));
+            let pc = meta.query_advice(pc, Rotation::cur());
+            let mut table_map = vec![(pc, self.pc.into())];
+            table_map.extend(
+                exe_line
+                    .to_vec()
+                    .into_iter()
+                    .zip(self.table.to_vec().into_iter())
+                    .map(|(exe_col, prog_col)| {
+                        (
+                            meta.query_advice(exe_col, Rotation::cur()),
+                            prog_col.into(),
+                        )
+                    }),
+            );
 
-    //     }
-    // }
+            DynamicTableMap {
+                selector: s_trace,
+                table_map,
+            }
+        });
+    }
+
+    pub fn assign_prog<F: FieldExt>(
+        self,
+        layouter: &mut impl Layouter<F>,
+    ) -> Result<(), Error> {
+        layouter.assign_region(
+            || "Prog",
+            |mut region| {
+                let input_cols = self.input.to_vec();
+                let table_cols = self.table.to_vec();
+
+                for (ic, tc) in input_cols.into_iter().zip(table_cols.into_iter()) {
+                    for offset in 0..Self::TABLE_LEN {
+                        region.assign_advice_from_instance(
+                            || "",
+                            ic,
+                            offset,
+                            tc,
+                            offset,
+                        )?;
+                    }
+                }
+
+                for offset in 0..Self::TABLE_LEN {
+                    self.s_prog.enable(&mut region, offset)?;
+                    self.dyn_table.add_row(&mut region, offset)?;
+                    region.assign_fixed(
+                        || "pc",
+                        self.pc,
+                        offset,
+                        || Value::known(F::from(offset as u64)),
+                    )?;
+                }
+
+                Ok(())
+            },
+        )?;
+
+        Ok(())
+    }
 }
-
-// impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Chip<F>
-//     for ProgChip<F, WORD_BITS, REG_COUNT>
-// {
-//     type Config = ProgConfig<WORD_BITS, REG_COUNT>;
-//     type Loaded = ();
-
-//     fn config(&self) -> &Self::Config {
-//         &self.config
-//     }
-
-//     fn loaded(&self) -> &Self::Loaded {
-//         &()
-//     }
-// }
-
-// impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
-//     ProgChip<F, WORD_BITS, REG_COUNT>
-// {
-//     fn construct(config: ProgConfig<WORD_BITS, REG_COUNT>) -> Self {
-//         Self {
-//             config,
-//             _marker: PhantomData,
-//         }
-//     }
-
-//     fn configure(
-//         meta: &mut ConstraintSystem<F>,
-//     ) -> ProgConfig<WORD_BITS, REG_COUNT> {
-//         let config = Self::new_columns(meta);
-
-//         // meta.create_gate("single selector bit set", |meta| {
-//         //     // let TempVarSelectors { a, b, c, d, .. }
-//         //     // meta.q
-//         // });
-
-//         config
-//     }
-
-//     // This could be a method on `ProgConfig`,
-//     // but that would require specifying types when calling this method.
-//     fn new_columns<C: Copy, M>(meta: &mut M) -> ProgConfig<WORD_BITS, REG_COUNT, C>
-//     where
-//         M: NewColumn<C>,
-//     {
-//         let pc = meta.new_column();
-
-//         let opcode = meta.new_column();
-//         let a_type = meta.new_column();
-//         let ri = meta.new_column();
-//         let rj = meta.new_column();
-//         let immediate = meta.new_column();
-
-//         let s = meta.new_column();
-//         let l = meta.new_column();
-
-//         let temp_vars = TempVarSelectors::new::<F, M>(meta);
-//         ProgConfig {
-//             pc,
-//             opcode,
-//             a_type,
-//             ri,
-//             rj,
-//             immediate,
-//             s,
-//             l,
-//             temp_vars,
-//         }
-//     }
-
-// }
-
-// #[test]
-// fn fp_from_bool() {
-//     // We rely on this property
-//     assert_eq!(halo2_proofs::pasta::Fp::zero(), false.into());
-//     assert_eq!(halo2_proofs::pasta::Fp::one(), true.into());
-// }
-
-// #[derive(Default)]
-// pub struct ProgCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
-//     pub prog: Option<trace::Program>,
-// }
-
-// impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
-//     for ProgCircuit<WORD_BITS, REG_COUNT>
-// {
-//     type Config = ProgConfig<WORD_BITS, REG_COUNT, Column<Instance>>;
-//     type FloorPlanner = SimpleFloorPlanner;
-
-//     fn without_witnesses(&self) -> Self {
-//         Self::default()
-//     }
-
-//     fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
-//         // We create the two advice columns that AndChip uses for I/O.
-//         let advice = [meta.advice_column(), meta.advice_column()];
-
-//         ProgChip::<F, WORD_BITS, REG_COUNT>::new_columns::<Column<Instance>, _>(meta)
-//     }
-
-//     fn synthesize(
-//         &self,
-//         config: Self::Config,
-//         mut layouter: impl Layouter<F>,
-//     ) -> Result<(), Error> {
-//         // let even_bits_chip = EvenBitsChip::<F, WORD_BITS>::construct(config.1);
-//         // even_bits_chip.alloc_table(&mut layouter.namespace(|| "alloc table"))?;
-//         // let prog_chip = ProgChip::<F, WORD_BITS, REG_COUNT>::construct(config.0);
-
-//         // let prog = self
-//         //     .prog
-//         //     .as_ref()
-//         //     .expect("A trace must be set before synthesis");
-//         // TODO verify store load
-//         // TODO constrain selectors
-//         // TODO constrain words
-//         // TODO constrain last address to answer zero
-
-//         Ok(())
-//     }
-// }
-
-// #[cfg(test)]
-// mod tests {
-//     use halo2_proofs::dev::MockProver;
-//     use halo2_proofs::pasta::Fp;
-
-//     use crate::{
-//         circuits::tables::prog::{ProgChip, ProgCircuit},
-//         instructions::*,
-//         trace::*,
-//     };
-
-//     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
-//     ) -> Trace<WORD_BITS, REG_COUNT> {
-//         let prog = Program(vec![
-//             Instruction::LoadW(LoadW {
-//                 ri: RegName(0),
-//                 a: ImmediateOrRegName::Immediate(Word(0)),
-//             }),
-//             Instruction::And(And {
-//                 ri: RegName(1),
-//                 rj: RegName(0),
-//                 a: ImmediateOrRegName::Immediate(Word(0b1)),
-//             }),
-//             Instruction::Answer(Answer {
-//                 a: ImmediateOrRegName::RegName(RegName(1)),
-//             }),
-//         ]);
-
-//         let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
-//         assert_eq!(trace.ans.0, 0b1);
-//         trace
-//     }
-
-//     #[test]
-//     fn circuit_layout_test() {
-//         const WORD_BITS: u32 = 8;
-//         const REG_COUNT: usize = 8;
-//         let prog = Some(load_and_answer::<WORD_BITS, REG_COUNT>().prog);
-
-//         let k = 1 + WORD_BITS / 2;
-
-//         // Instantiate the circuit with the private inputs.
-//         let circuit = ProgCircuit::<WORD_BITS, REG_COUNT> { prog };
-//         use plotters::prelude::*;
-//         let root =
-//             BitMapBackend::new("layout.png", (1080, 1920)).into_drawing_area();
-//         root.fill(&WHITE).unwrap();
-//         let root = root
-//             .titled("Prog Circuit Layout", ("sans-serif", 60))
-//             .unwrap();
-
-//         halo2_proofs::dev::CircuitLayout::default()
-//             .mark_equality_cells(true)
-//             .show_equality_constraints(true)
-//             // The first argument is the size parameter for the circuit.
-//             .render::<Fp, _, _>(k, &circuit, &root)
-//             .unwrap();
-
-//         let dot_string = halo2_proofs::dev::circuit_dot_graph::<Fp, _>(&circuit);
-//         let mut dot_graph = std::fs::File::create("circuit.dot").unwrap();
-//         std::io::Write::write_all(&mut dot_graph, dot_string.as_bytes()).unwrap();
-//     }
-
-//     fn mock_prover_test<const WORD_BITS: u32, const REG_COUNT: usize>(
-//         trace: Trace<WORD_BITS, REG_COUNT>,
-//     ) {
-//         let k = 1 + WORD_BITS / 2;
-
-//         let public = ProgChip::<Fp, WORD_BITS, REG_COUNT>::program(&trace.prog);
-
-//         let circuit = ProgCircuit::<WORD_BITS, REG_COUNT> {
-//             prog: Some(trace.prog),
-//         };
-//         // Given the correct public input, our circuit will verify.
-//         let prover = MockProver::<Fp>::run(k, &circuit, public).unwrap();
-//         assert_eq!(prover.verify(), Ok(()));
-//     }
-
-//     #[test]
-//     fn load_and_answer_mock_prover() {
-//         mock_prover_test::<8, 8>(load_and_answer())
-//     }
-
-//     #[test]
-//     fn answer_mock_prover() {
-//         let prog = Program(vec![Instruction::Answer(Answer {
-//             a: ImmediateOrRegName::Immediate(Word(1)),
-//         })]);
-
-//         let trace = prog.eval::<8, 8>(Mem::new(&[], &[]));
-//         assert_eq!(trace.ans.0, 1);
-
-//         mock_prover_test::<8, 8>(trace)
-//     }
-// }
