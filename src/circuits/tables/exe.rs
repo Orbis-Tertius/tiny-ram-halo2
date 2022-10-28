@@ -824,7 +824,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
             flag,
             temp_vars,
             out,
-            address,
+            address: _,
             value,
             logic,
             ssum,
