@@ -47,14 +47,19 @@ impl<const WORD_BITS: u32, F: FieldExt> Chip<F> for MemChip<WORD_BITS, F> {
 }
 
 impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
-    fn construct(config: MemConfig<WORD_BITS>) -> Self {
+    /// Currently this is the same as `ExeConfig::TABLE_LEN`.
+    /// Programs will usually be much smaller than traces,
+    /// so we should reduce this to allow stacking.
+    const TABLE_LEN: usize = 2usize.pow(WORD_BITS / 2);
+
+    pub fn construct(config: MemConfig<WORD_BITS>) -> Self {
         Self {
             config,
             _marker: PhantomData,
         }
     }
 
-    fn configure(
+    pub fn configure(
         meta: &mut ConstraintSystem<F>,
         even_bits: EvenBitsTable<WORD_BITS>,
     ) -> MemConfig<WORD_BITS> {
@@ -136,133 +141,120 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         }
     }
 
-    fn accesses(&self, mut layouter: impl Layouter<F>, mem: Mem<WORD_BITS>) {
+    pub fn assign_mem(&self, mut layouter: impl Layouter<F>, mem: Mem<WORD_BITS>) {
         let config = self.config();
 
         let mut prior_address = 0;
+        let mut offset = 0;
 
         for (address_val, accesses) in mem.address.iter() {
             // TODO don't generate init for sequences init, store..
             let mut recent_stored_value = accesses.initial_value().unwrap();
 
-            accesses
-                .0
-                .iter()
-                .enumerate()
-                .fold(0, |prior_time, (offset, access)| {
-                    if let Access::Store { value, .. } = access {
-                        recent_stored_value = *value;
-                    }
+            accesses.0.iter().fold(0, |prior_time, access| {
+                if let Access::Store { value, .. } = access {
+                    recent_stored_value = *value;
+                }
 
-                    layouter
-                        .assign_region(
-                            || "Mem",
-                            |mut region: Region<'_, F>| {
-                                let MemConfig {
-                                    s_mem_table: _,
-                                    address,
-                                    time,
-                                    init,
-                                    store,
-                                    load,
-                                    address_increment,
-                                    time_increment,
-                                } = *config;
+                layouter
+                    .assign_region(
+                        || "Mem",
+                        |mut region: Region<'_, F>| {
+                            let MemConfig {
+                                s_mem_table: _,
+                                address,
+                                time,
+                                init,
+                                store,
+                                load,
+                                address_increment,
+                                time_increment,
+                            } = *config;
 
-                                let time_val =
-                                    access.time().map(|a| a.0).unwrap_or(0);
-                                region.assign_advice(
-                                    || format!("time: {}", time_val),
-                                    time,
-                                    offset,
-                                    || Value::known(F::from(u64::from(time_val))),
-                                )?;
+                            let time_val = access.time().map(|a| a.0).unwrap_or(0);
+                            region.assign_advice(
+                                || format!("time: {}", time_val),
+                                time,
+                                offset,
+                                || Value::known(F::from(u64::from(time_val))),
+                            )?;
 
-                                region.assign_advice(
-                                    || format!("address: {}", address_val.0),
-                                    address,
-                                    offset,
-                                    || {
-                                        Value::known(F::from(u64::from(
-                                            address_val.0,
-                                        )))
-                                    },
-                                )?;
+                            region.assign_advice(
+                                || format!("address: {}", address_val.0),
+                                address,
+                                offset,
+                                || Value::known(F::from(u64::from(address_val.0))),
+                            )?;
 
-                                let is_load = access.is_load();
-                                region.assign_advice(
-                                    || format!("load: {}", is_load),
-                                    load,
-                                    offset,
-                                    || Value::known(F::from(is_load)),
-                                )?;
+                            let is_load = access.is_load();
+                            region.assign_advice(
+                                || format!("load: {}", is_load),
+                                load,
+                                offset,
+                                || Value::known(F::from(is_load)),
+                            )?;
 
-                                let is_store = access.is_store();
-                                region.assign_advice(
-                                    || format!("store: {}", is_store),
-                                    store,
-                                    offset,
-                                    || Value::known(F::from(is_store)),
-                                )?;
+                            let is_store = access.is_store();
+                            region.assign_advice(
+                                || format!("store: {}", is_store),
+                                store,
+                                offset,
+                                || Value::known(F::from(is_store)),
+                            )?;
 
-                                let is_init = access.is_init();
-                                region.assign_advice(
-                                    || format!("init: {}", is_init),
-                                    init,
-                                    offset,
-                                    || Value::known(F::from(is_init)),
-                                )?;
+                            let is_init = access.is_init();
+                            region.assign_advice(
+                                || format!("init: {}", is_init),
+                                init,
+                                offset,
+                                || Value::known(F::from(is_init)),
+                            )?;
 
-                                let address_increment_val = (address_val.0
-                                    - prior_address)
-                                    .saturating_sub(1);
-                                let address_increment_val_f =
-                                    F::from(u64::from(address_increment_val));
-                                region.assign_advice(
-                                    || {
-                                        format!(
-                                            "address_increment: {}",
-                                            address_increment_val
-                                        )
-                                    },
-                                    address_increment.word,
-                                    offset,
-                                    || Value::known(address_increment_val_f),
-                                )?;
-                                address_increment.assign_decompose(
-                                    &mut region,
-                                    address_increment_val_f,
-                                    offset,
-                                );
+                            let address_increment_val =
+                                (address_val.0 - prior_address).saturating_sub(1);
+                            let address_increment_val_f =
+                                F::from(u64::from(address_increment_val));
+                            region.assign_advice(
+                                || {
+                                    format!(
+                                        "address_increment: {}",
+                                        address_increment_val
+                                    )
+                                },
+                                address_increment.word,
+                                offset,
+                                || Value::known(address_increment_val_f),
+                            )?;
+                            address_increment.assign_decompose(
+                                &mut region,
+                                address_increment_val_f,
+                                offset,
+                            );
 
-                                let time_increment_val =
-                                    (time_val - prior_time).saturating_sub(1);
-                                let time_increment_val_f =
-                                    F::from(u64::from(time_increment_val));
-                                region.assign_advice(
-                                    || {
-                                        format!(
-                                            "time_increment: {}",
-                                            time_increment_val
-                                        )
-                                    },
-                                    time_increment.word,
-                                    offset,
-                                    || Value::known(time_increment_val_f),
-                                )?;
-                                time_increment.assign_decompose(
-                                    &mut region,
-                                    time_increment_val_f,
-                                    offset,
-                                );
+                            let time_increment_val =
+                                (time_val - prior_time).saturating_sub(1);
+                            let time_increment_val_f =
+                                F::from(u64::from(time_increment_val));
+                            region.assign_advice(
+                                || format!("time_increment: {}", time_increment_val),
+                                time_increment.word,
+                                offset,
+                                || Value::known(time_increment_val_f),
+                            )?;
+                            time_increment.assign_decompose(
+                                &mut region,
+                                time_increment_val_f,
+                                offset,
+                            );
 
-                                Ok(())
-                            },
-                        )
-                        .unwrap();
+                            Ok(())
+                        },
+                    )
+                    .unwrap();
 
-                    access.time().map(|a| a.0).unwrap_or(0)
-                });
+                offset += 1;
+                access.time().map(|a| a.0).unwrap_or(0)
+            });
             prior_address = address_val.0;
         }
     }
