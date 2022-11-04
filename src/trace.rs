@@ -247,6 +247,18 @@ pub enum Access {
 }
 
 impl Access {
+    pub fn is_init(&self) -> bool {
+        matches!(self, Access::Init { .. })
+    }
+
+    pub fn is_store(&self) -> bool {
+        matches!(self, Access::Store { .. })
+    }
+
+    pub fn is_load(&self) -> bool {
+        matches!(self, Access::Load { .. })
+    }
+
     pub fn address(&self) -> Address {
         match self {
             Access::Init { address, .. }
@@ -260,6 +272,13 @@ impl Access {
             Access::Init { value, .. }
             | Access::Store { value, .. }
             | Access::Load { value, .. } => *value,
+        }
+    }
+
+    pub fn time(&self) -> Option<Time> {
+        match self {
+            Access::Init { .. } => None,
+            Access::Store { time, .. } | Access::Load { time, .. } => Some(*time),
         }
     }
 }
