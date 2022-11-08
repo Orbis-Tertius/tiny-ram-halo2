@@ -7,7 +7,7 @@ use halo2_proofs::{
     circuit::{Chip, Layouter, Region, SimpleFloorPlanner, Value},
     plonk::{
         Advice, Circuit, Column, ConstraintSystem, Constraints, Error, Expression,
-        Fixed, Selector, VirtualCells,
+        Fixed, Selector,
     },
     poly::Rotation,
 };
@@ -1104,7 +1104,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> Circuit<F>
 }
 
 #[cfg(test)]
-mod tiny_ram_circuit_tests {
+mod exe_tests {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::pasta::Fp;
     use proptest::{prop_compose, proptest};

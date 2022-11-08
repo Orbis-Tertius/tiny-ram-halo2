@@ -76,14 +76,14 @@ impl<
 }
 
 #[cfg(test)]
-mod tests {
+mod tiny_ram_circuit_tests {
     use halo2_proofs::dev::MockProver;
     use halo2_proofs::pasta::Fp;
     use proptest::{prop_compose, proptest};
 
     use crate::{instructions::*, test_utils::gen_proofs_and_verify, trace::*};
 
-    use super::TinyRamCircuit;
+    use super::{tables::prog::program_instance, TinyRamCircuit};
 
     fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
         a: u32,
@@ -365,10 +365,12 @@ mod tests {
         trace: Trace<WORD_BITS, REG_COUNT>,
     ) {
         let k = 2 + WORD_BITS / 2;
+        let program_instance =
+            program_instance::<WORD_BITS, REG_COUNT, Fp>(trace.prog.clone());
         let circuit = TinyRamCircuit::<WORD_BITS, REG_COUNT> { trace: Some(trace) };
 
         // Given the correct public input, our circuit will verify.
-        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        let prover = MockProver::<Fp>::run(k, &circuit, program_instance).unwrap();
         prover.assert_satisfied();
     }
 
