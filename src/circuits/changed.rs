@@ -8,7 +8,7 @@ use halo2_proofs::{
 
 use crate::{assign::AssignCell, trace::Registers};
 
-use super::tables::exe::TraceSelector;
+use super::tables::TableSelector;
 
 /// This corresponds to sch in the paper.
 /// The meaning of 0, and 1 is inverted relative to the paper.
@@ -81,7 +81,7 @@ impl<const REG_COUNT: usize> ChangedSelectors<REG_COUNT, Column<Advice>> {
     pub fn unchanged_gate<F: FieldExt>(
         &self,
         meta: &mut ConstraintSystem<F>,
-        s_trace: TraceSelector,
+        s_trace: TableSelector,
 
         // TODO Consider refactoring ChangedSelectors into a new type around `State {regs, pc, flag}`
         regs: Registers<REG_COUNT, Column<Advice>>,

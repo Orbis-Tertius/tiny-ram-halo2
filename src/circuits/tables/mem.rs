@@ -3,15 +3,16 @@ use std::marker::PhantomData;
 use halo2_proofs::{
     arithmetic::FieldExt,
     circuit::{Chip, Layouter, Region, Value},
-    plonk::{
-        Advice, Column, ConstraintSystem, Constraints, Error, Expression, Selector,
-    },
+    plonk::{Advice, Column, ConstraintSystem, Constraints, Error, Expression},
     poly::Rotation,
 };
 
 use crate::trace::{Access, Mem};
 
-use super::even_bits::{EvenBitsConfig, EvenBitsTable};
+use super::{
+    even_bits::{EvenBitsConfig, EvenBitsTable},
+    TableSelector,
+};
 
 pub struct MemChip<const WORD_BITS: u32, F: FieldExt> {
     config: MemConfig<WORD_BITS>,
@@ -20,7 +21,7 @@ pub struct MemChip<const WORD_BITS: u32, F: FieldExt> {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MemConfig<const WORD_BITS: u32> {
-    s_mem_table: Selector,
+    extent: TableSelector,
     address: Column<Advice>,
     time: Column<Advice>,
 
@@ -68,7 +69,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         meta: &mut ConstraintSystem<F>,
         even_bits: EvenBitsTable<WORD_BITS>,
     ) -> MemConfig<WORD_BITS> {
-        let s_mem_table = meta.selector();
+        let extent = TableSelector::configure(meta);
 
         let address = meta.advice_column();
         let time = meta.advice_column();
@@ -82,8 +83,8 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         let address_increment = EvenBitsConfig::configure(
             meta,
             address_increment,
-            &[],
-            s_mem_table,
+            &[extent.s_trace],
+            extent.s_table,
             even_bits,
         );
 
@@ -91,15 +92,17 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         let time_increment = EvenBitsConfig::configure(
             meta,
             time_increment,
-            &[],
-            s_mem_table,
+            &[extent.s_trace],
+            extent.s_table,
             even_bits,
         );
 
         meta.create_gate("Mem", |meta| {
             let one = Expression::Constant(F::one());
 
-            let s_mem_table = meta.query_selector(s_mem_table);
+            // We query s_trace next since all our constraints are on the current and next row.
+            // The last line of the trace is constrained by the prior line.
+            let s_trace_next = extent.query_trace_next(meta);
 
             let address_next = meta.query_advice(address, Rotation::next());
             let address = meta.query_advice(address, Rotation::cur());
@@ -123,7 +126,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
             // The table is sorted by address and then time.
             // `init = 0` or store can be the start of a access trace over an address.
             Constraints::with_selector(
-                s_mem_table,
+                s_trace_next,
                 [
                     // The next row may belong to a different access trace on a larger address.
                     end_cycle.clone() * same_cycle,
@@ -137,7 +140,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         });
 
         MemConfig {
-            s_mem_table,
+            extent,
             address,
             time,
             init,
@@ -159,32 +162,37 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         layouter.assign_region(
             || "Mem",
             |mut region: Region<'_, F>| {
-                // Default fill the table with zeros.
+                config
+                    .extent
+                    .alloc_table_rows(&mut region, Self::TABLE_LEN)?;
 
                 let mut prior_address = 0;
                 let mut offset = 0;
 
                 for (address_val, accesses) in mem.address.iter() {
                     // TODO don't generate init for sequences init, store..
-                    let mut recent_stored_value = accesses.initial_value().unwrap();
+                    let mut recent_stored_value: u64 =
+                        accesses.initial_value().unwrap().0.into();
                     let mut prior_time = 0;
 
                     for access in accesses.0.iter() {
                         if let Access::Store { value, .. } = access {
-                            recent_stored_value = *value;
+                            recent_stored_value = value.0.into();
                         }
 
                         let MemConfig {
-                            s_mem_table: _,
+                            extent,
                             address,
-                            time,
+                            time: _,
                             init,
                             store,
                             load,
                             value,
                             address_increment,
-                            time_increment,
+                            time_increment: _,
                         } = *config;
+
+                        extent.enable_row_of_table(&mut region, offset, true)?;
 
                         let time_val: u64 =
                             access.time().map(|a| a.0).unwrap_or(0).into();
@@ -242,6 +250,13 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
                             init,
                             offset,
                             || Value::known(F::from(is_init)),
+                        )?;
+
+                        region.assign_advice(
+                            || format!("value: {}", recent_stored_value),
+                            value,
+                            offset,
+                            || Value::known(F::from(recent_stored_value)),
                         )?;
 
                         offset += 1;

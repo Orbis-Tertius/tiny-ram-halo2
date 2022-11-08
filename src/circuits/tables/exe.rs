@@ -36,39 +36,8 @@ use super::{
     pow::PowTable,
     prog::ProgramLine,
     signed::SignedConfig,
+    TableSelector,
 };
-
-#[derive(Debug, Clone, Copy)]
-pub struct TraceSelector {
-    /// A Selector denoting the extent of the Exe table.
-    /// Enabled for every row that may contain a line of the trace.
-    pub s_table: Selector,
-    /// An advice selector denoting the extent of the trace.
-    /// Enabled for every row that contains a line of the trace.
-    pub s_trace: Column<Advice>,
-}
-
-impl TraceSelector {
-    pub fn query<F: FieldExt>(
-        self: TraceSelector,
-        meta: &mut VirtualCells<F>,
-    ) -> Expression<F> {
-        let s_table = meta.query_selector(self.s_table);
-        let s_trace = meta.query_advice(self.s_trace, Rotation::cur());
-        Expression::SelectorExpression(Box::new(s_table * s_trace))
-    }
-
-    /// Query the current row of `s_table`, and the next row of s_trace.
-    /// Useful for constraints that should now applie on the last line of the trace.
-    pub fn query_trace_next<F: FieldExt>(
-        self: TraceSelector,
-        meta: &mut VirtualCells<F>,
-    ) -> Expression<F> {
-        let s_table = meta.query_selector(self.s_table);
-        let s_trace = meta.query_advice(self.s_trace, Rotation::next());
-        Expression::SelectorExpression(Box::new(s_table * s_trace))
-    }
-}
 
 pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
     config: ExeConfig<WORD_BITS, REG_COUNT>,
@@ -81,7 +50,7 @@ pub struct ExeChip<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize> {
 pub struct ExeConfig<const WORD_BITS: u32, const REG_COUNT: usize> {
     /// A Selector that's enabled on only the first line of the Exe table
     first_line: Selector,
-    pub extent: TraceSelector,
+    pub extent: TableSelector,
 
     /// Instruction count
     time: Column<Fixed>,
@@ -568,8 +537,8 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let out = Out::new(|| meta.new_column());
 
         let first_line = meta.selector();
-        let s_table = meta.complex_selector();
-        let s_trace = meta.advice_column();
+        let extent @ TableSelector { s_table, s_trace } =
+            TableSelector::configure(meta);
 
         let even_bits = EvenBitsTable::new(meta);
         let pow_table = PowTable::new(meta);
@@ -762,7 +731,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
 
         ExeConfig {
             first_line,
-            extent: TraceSelector { s_table, s_trace },
+            extent: TableSelector { s_table, s_trace },
             time,
             pc,
             program_line,
@@ -816,7 +785,7 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
     ) -> Result<(), Error> {
         let ExeConfig {
             first_line,
-            extent: TraceSelector { s_table, s_trace },
+            extent,
             time,
             pc,
             program_line,
@@ -845,11 +814,12 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                 |mut region: Region<'_, F>| {
                     first_line.enable(&mut region, 0).unwrap();
 
-                    // FIXME Define the extent of the Exe table.
-                    for offset in 0..ExeConfig::<WORD_BITS, REG_COUNT>::TABLE_LEN {
-                        // for offset in 0..trace.exe.len() {
+                    let table_len = ExeConfig::<WORD_BITS, REG_COUNT>::TABLE_LEN;
+
+                    // Allocate the Exe table
+                    extent.alloc_table_rows(&mut region, table_len)?;
+                    for offset in 0..table_len {
                         // Time is 1 indexed.
-                        // TODO consider making time 0 indexed
                         region
                             .assign_fixed(
                                 || format!("time: {}", offset + 1),
@@ -858,18 +828,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                                 || Value::known(F::from(offset as u64)),
                             )
                             .unwrap();
-
-                        s_table.enable(&mut region, offset)?;
                     }
 
                     // Define the extent of the trace within the Exe table.
                     for offset in 0..trace.exe.len() {
-                        region.assign_advice(
-                            || "",
-                            s_trace,
-                            offset,
-                            || Value::known(F::one()),
-                        )?;
+                        extent.enable_row_of_table(&mut region, offset, true)?;
                     }
 
                     for (offset, step) in trace.exe.iter().enumerate() {
@@ -1092,14 +1055,11 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
                         }
                     }
 
-                    region
-                        .assign_advice(
-                            || "",
-                            s_trace,
-                            trace.exe.len(),
-                            || Value::known(F::zero()),
-                        )
-                        .unwrap();
+                    extent.enable_row_of_table(
+                        &mut region,
+                        trace.exe.len(),
+                        false,
+                    )?;
 
                     Ok(())
                 },
