@@ -221,7 +221,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ProgConfig<WORD_BITS, REG_COU
                         || "pc",
                         self.pc,
                         offset,
-                        || Value::known(F::from(offset as u64 + 1)),
+                        || Value::known(F::from(offset as u64)),
                     )?;
                 }
 

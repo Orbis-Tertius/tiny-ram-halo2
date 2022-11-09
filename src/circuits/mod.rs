@@ -389,12 +389,17 @@ mod tiny_ram_circuit_tests {
         assert_eq!(l_and_ans.ans.0, 1);
 
         gen_proofs_and_verify::<8, _>(vec![
-            (TinyRamCircuit { trace: Some(ans) }, vec![]),
             (
                 TinyRamCircuit {
-                    trace: Some(l_and_ans),
+                    trace: Some(ans.clone()),
                 },
-                vec![],
+                program_instance::<8, 8, Fp>(ans.prog),
+            ),
+            (
+                TinyRamCircuit {
+                    trace: Some(l_and_ans.clone()),
+                },
+                program_instance::<8, 8, Fp>(l_and_ans.prog),
             ),
         ]);
     }

@@ -301,7 +301,6 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
     }
 }
 
-
 #[cfg(test)]
 mod mem_tests {
     use halo2_proofs::dev::MockProver;
