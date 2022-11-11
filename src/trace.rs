@@ -148,7 +148,7 @@ pub struct Trace<const WORD_BITS: u32, const REG_COUNT: usize> {
 #[derive(Debug, Clone)]
 pub struct Mem<const WORD_BITS: u32> {
     // A map from an address to a time ordered vector of access.
-    pub address: BTreeMap<Address, Accesses>,
+    pub accesses: BTreeMap<Address, Accesses>,
 }
 
 impl<const WORD_BITS: u32> Mem<WORD_BITS> {
@@ -158,13 +158,13 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
         assert_eq!(WORD_BITS % 8, 0);
 
         Mem {
-            address: primary_tape
+            accesses: primary_tape
                 .iter()
                 .chain(auxiliary_tape.iter())
                 .cloned()
                 .enumerate()
                 .map(|(i, word)| {
-                    let address = Address(i as u32 * WORD_BITS);
+                    let address = Address(i as u32 * WORD_BITS / 8);
                     // In TinyRAM 2.0 Preamble they specify reading the primary tape
                     // TODO match the spec, and figure out the non-deterministic tapes location.
                     (address, Accesses::init_memory(address, word))
@@ -173,7 +173,7 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
         }
     }
     fn access(&mut self, address: Address) -> &mut Accesses {
-        self.address
+        self.accesses
             .entry(address)
             // Perhaps we should panic on loads before stores.
             // Probably not in tests.
@@ -201,6 +201,10 @@ impl<const WORD_BITS: u32> Mem<WORD_BITS> {
             pc,
             address,
         });
+    }
+
+    pub fn access_count(&self) -> usize {
+        self.accesses.iter().flat_map(|addr| &addr.1 .0).count()
     }
 }
 
@@ -381,23 +385,34 @@ impl Program {
         let mut time = Time(1);
         let mut exe = Vec::with_capacity(100);
         let mut flag = false;
+
         let ans = loop {
             let instruction = *prog
                 .0
                 .get(pc.0 as usize)
                 .expect("Program did not Answer 0 or 1.");
+
+            let v_addr = match instruction {
+                Instruction::LoadW(LoadW { a, .. }) => {
+                    let a = a.get(&regs).0;
+                    Some(mem.load(Address(a), time, pc))
+                }
+                Instruction::StoreW(StoreW { ri, a }) => {
+                    let val = regs[ri];
+                    mem.store(Address(a.get(&regs).0), time, pc, val);
+                    Some(val)
+                }
+
+                _ => None,
+            };
+
             exe.push(Step {
                 time,
                 pc,
                 instruction,
                 regs,
                 flag,
-                v_addr: if let Instruction::LoadW(LoadW { a, .. }) = instruction {
-                    let a = a.get(&regs).0;
-                    Some(mem.load(Address(a), time, pc))
-                } else {
-                    None
-                },
+                v_addr,
             });
             match instruction {
                 Instruction::And(And { ri, rj, a }) => {
@@ -511,13 +526,11 @@ impl Program {
                         pc.0 += 1
                     }
                 }
-                Instruction::LoadW(LoadW { ri, a }) => {
-                    let a = a.get(&regs).0;
-                    regs[ri] = mem.load(Address(a), time, pc);
+                Instruction::LoadW(LoadW { ri, .. }) => {
+                    regs[ri] = v_addr.unwrap();
                 }
-                Instruction::StoreW(StoreW { ri, a }) => {
-                    mem.store(Address(a.get(&regs).0), time, pc, regs[ri])
-                }
+                // Store is executed when v_addr is set.
+                Instruction::StoreW(_) => {}
                 Instruction::Answer(Answer { a }) => break a.get(&regs),
             };
 
@@ -563,7 +576,7 @@ fn trace_load_and_store_ans_test() {
         }),
         Instruction::StoreW(StoreW {
             ri: RegName(1),
-            a: ImmediateOrRegName::Immediate(Word(1)),
+            a: ImmediateOrRegName::Immediate(Word(8)),
         }),
         Instruction::Answer(Answer {
             a: ImmediateOrRegName::RegName(RegName(1)),
@@ -573,12 +586,39 @@ fn trace_load_and_store_ans_test() {
     let trace = prog.eval::<8, 8>(Mem::new(&[Word(0b1)], &[]));
     assert_eq!(trace.ans.0, 0b1);
     assert_eq!(
-        trace.mem.address.get(&Address(1)).unwrap().0[1],
+        trace.mem.accesses.get(&Address(8)).unwrap().0[1],
         Access::Store {
-            address: Address(1),
+            address: Address(8),
             time: Time(3),
             pc: ProgCount(2),
             value: Word(0b1)
         }
     );
+
+    dbg!(&trace.mem.accesses);
+    // init 0, load 0, init 8, store 8;
+    assert_eq!(4, trace.mem.access_count());
+}
+
+#[test]
+fn trace_load_and_answer() {
+    let prog = Program(vec![
+        Instruction::LoadW(LoadW {
+            ri: RegName(0),
+            a: ImmediateOrRegName::Immediate(Word(16)),
+        }),
+        Instruction::And(And {
+            ri: RegName(1),
+            rj: RegName(0),
+            a: ImmediateOrRegName::Immediate(Word(128)),
+        }),
+        Instruction::Answer(Answer {
+            a: ImmediateOrRegName::Immediate(Word(1)),
+        }),
+    ]);
+
+    let trace = prog.eval::<8, 8>(Mem::new(&[Word(0b1)], &[]));
+    // Init tape, Init 16, Load 16
+    assert_eq!(trace.mem.access_count(), 3);
+    assert_eq!(trace.ans.0, 1);
 }

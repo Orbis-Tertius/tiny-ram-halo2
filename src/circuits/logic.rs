@@ -333,7 +333,7 @@ impl<const WORD_BITS: u32, const OP: usize> Circuit<Fp>
         let res = meta.advice_column();
         meta.enable_equality(res);
 
-        let even_bits = EvenBitsTable::new(meta);
+        let even_bits = EvenBitsTable::configure(meta);
 
         let a = meta.advice_column();
         let a = EvenBitsConfig::configure(

@@ -152,7 +152,19 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ExeConfig<WORD_BITS, REG_COUN
 
             let s_trace = meta.query_advice(self.extent.s_trace, Rotation::cur());
 
-            Constraints::with_selector(first_line, [(one - s_trace)])
+            let trace_starts = one - s_trace;
+            let zeroed_pc = meta.query_advice(self.pc, Rotation::cur());
+            let zeroed_flag = meta.query_advice(self.flag, Rotation::cur());
+            let zeroed_regs =
+                self.reg.map(|r| meta.query_advice(r, Rotation::cur())).0;
+
+            Constraints::with_selector(
+                first_line,
+                [trace_starts, zeroed_pc, zeroed_flag]
+                    .into_iter()
+                    .chain(zeroed_regs)
+                    .collect::<Vec<_>>(),
+            )
         });
 
         meta.create_gate("contiguous_trace", |meta| {
@@ -537,10 +549,9 @@ impl<F: FieldExt, const WORD_BITS: u32, const REG_COUNT: usize>
         let out = Out::new(|| meta.new_column());
 
         let first_line = meta.selector();
-        let extent @ TableSelector { s_table, s_trace } =
-            TableSelector::configure(meta);
+        let TableSelector { s_table, s_trace } = TableSelector::configure(meta);
 
-        let even_bits = EvenBitsTable::new(meta);
+        let even_bits = EvenBitsTable::configure(meta);
         let pow_table = PowTable::new(meta);
         let out_table = OutTable::new(meta);
         CorrectOutConfig::configure(

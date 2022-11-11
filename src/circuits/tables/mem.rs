@@ -14,7 +14,7 @@ use super::{
     TableSelector,
 };
 
-pub struct MemChip<const WORD_BITS: u32, F: FieldExt> {
+pub struct MemChip<F: FieldExt, const WORD_BITS: u32> {
     config: MemConfig<WORD_BITS>,
     _marker: PhantomData<F>,
 }
@@ -37,9 +37,11 @@ pub struct MemConfig<const WORD_BITS: u32> {
     address_increment: EvenBitsConfig<WORD_BITS>,
     /// The difference between time and time on the next row.
     time_increment: EvenBitsConfig<WORD_BITS>,
+
+    even_bits: EvenBitsTable<WORD_BITS>,
 }
 
-impl<const WORD_BITS: u32, F: FieldExt> Chip<F> for MemChip<WORD_BITS, F> {
+impl<const WORD_BITS: u32, F: FieldExt> Chip<F> for MemChip<F, WORD_BITS> {
     type Config = MemConfig<WORD_BITS>;
     type Loaded = ();
 
@@ -52,13 +54,18 @@ impl<const WORD_BITS: u32, F: FieldExt> Chip<F> for MemChip<WORD_BITS, F> {
     }
 }
 
-impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
+impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
     /// Currently this is the same as `ExeConfig::TABLE_LEN`.
     /// Programs will usually be much smaller than traces,
     /// so we should reduce this to allow stacking.
     const TABLE_LEN: usize = 2usize.pow(WORD_BITS / 2);
 
-    pub fn construct(config: MemConfig<WORD_BITS>) -> Self {
+    pub fn construct(
+        layouter: &mut impl Layouter<F>,
+        config: MemConfig<WORD_BITS>,
+    ) -> Self {
+        config.even_bits.alloc_table(layouter).unwrap();
+
         Self {
             config,
             _marker: PhantomData,
@@ -108,13 +115,13 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
             let address = meta.query_advice(address, Rotation::cur());
 
             let address_increment =
-                meta.query_advice(address_increment.word, Rotation::cur());
+                meta.query_advice(address_increment.word, Rotation::next());
 
             let time_next = meta.query_advice(time, Rotation::next());
             let time = meta.query_advice(time, Rotation::cur());
 
             let time_increment =
-                meta.query_advice(time_increment.word, Rotation::cur());
+                meta.query_advice(time_increment.word, Rotation::next());
 
             let same_cycle = address_next.clone() - address.clone();
             let end_cycle = address_next - address - one.clone() - address_increment;
@@ -134,7 +141,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
                     end_cycle.clone() * time_sorted,
                     // The next row may be a initial value from the tape
                     // if it's the start of an access trace.
-                    end_cycle * (init_next - one),
+                    // end_cycle * (init_next - one),
                 ],
             )
         });
@@ -149,13 +156,14 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
             value,
             address_increment,
             time_increment,
+            even_bits,
         }
     }
 
     pub fn assign_mem(
         &self,
         mut layouter: impl Layouter<F>,
-        mem: Mem<WORD_BITS>,
+        mem: &Mem<WORD_BITS>,
     ) -> Result<(), Error> {
         let config = self.config();
 
@@ -169,7 +177,8 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
                 let mut prior_address = 0;
                 let mut offset = 0;
 
-                for (address_val, accesses) in mem.address.iter() {
+                eprintln!("mem: {:?}", mem);
+                for (address_val, accesses) in mem.accesses.iter() {
                     // TODO don't generate init for sequences init, store..
                     let mut recent_stored_value: u64 =
                         accesses.initial_value().unwrap().0.into();
@@ -190,6 +199,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
                             value,
                             address_increment,
                             time_increment: _,
+                            even_bits: _,
                         } = *config;
 
                         extent.enable_row_of_table(&mut region, offset, true)?;
@@ -200,6 +210,8 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
                         self.assign_time(&mut region, offset, prior_time, time_val)?;
                         prior_time = time_val;
 
+                        dbg!(address_val);
+                        assert_eq!(address_val, &access.address());
                         region.assign_advice(
                             || format!("address: {}", address_val.0),
                             address,
@@ -207,8 +219,9 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
                             || Value::known(F::from(u64::from(address_val.0))),
                         )?;
 
-                        let address_increment_val =
-                            (address_val.0 - prior_address).saturating_sub(1);
+                        let address_increment_val = (dbg!(address_val.0)
+                            - dbg!(prior_address))
+                        .saturating_sub(1);
                         let address_increment_val_f =
                             F::from(u64::from(address_increment_val));
                         region.assign_advice(
@@ -298,5 +311,472 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<WORD_BITS, F> {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod mem_tests {
+    use super::*;
+    use halo2_proofs::circuit::SimpleFloorPlanner;
+    use halo2_proofs::pasta::Fp;
+    use halo2_proofs::{dev::MockProver, plonk::Circuit};
+    use proptest::{prop_compose, proptest};
+
+    use crate::{instructions::*, test_utils::gen_proofs_and_verify, trace::*};
+
+    #[derive(Default, Debug, Clone)]
+    pub struct TinyRamCircuit<const WORD_BITS: u32, const REG_COUNT: usize> {
+        pub trace: Option<Trace<WORD_BITS, REG_COUNT>>,
+    }
+
+    impl<
+            F: halo2_proofs::arithmetic::FieldExt,
+            const WORD_BITS: u32,
+            const REG_COUNT: usize,
+        > Circuit<F> for TinyRamCircuit<WORD_BITS, REG_COUNT>
+    {
+        type Config = MemConfig<WORD_BITS>;
+        type FloorPlanner = SimpleFloorPlanner;
+
+        fn without_witnesses(&self) -> Self {
+            Self::default()
+        }
+
+        fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
+            let even_bits = EvenBitsTable::configure(meta);
+            let prog_config = MemChip::<F, WORD_BITS>::configure(meta, even_bits);
+
+            prog_config
+        }
+
+        fn synthesize(
+            &self,
+            config: Self::Config,
+            mut layouter: impl Layouter<F>,
+        ) -> Result<(), Error> {
+            let exe_chip = MemChip::<F, WORD_BITS>::construct(&mut layouter, config);
+
+            if let Some(trace) = &self.trace {
+                exe_chip.assign_mem(layouter, &trace.mem)?;
+            }
+            Ok(())
+        }
+    }
+
+    fn load_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        let prog = Program(vec![
+            Instruction::LoadW(LoadW {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(b)),
+            }),
+            Instruction::And(And {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            }),
+        ]);
+
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 1);
+        trace
+    }
+    fn mov_ins_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        ins: Instruction<RegName, ImmediateOrRegName>,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        let prog = Program(vec![
+            Instruction::Mov(Mov {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(b)),
+            }),
+            ins,
+            Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            }),
+        ]);
+
+        let trace = prog.eval::<WORD_BITS, REG_COUNT>(Mem::new(&[Word(0b1)], &[]));
+        assert_eq!(trace.ans.0, 1);
+        trace
+    }
+
+    fn mov_and_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::And(And {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_xor_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Xor(Xor {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_or_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Or(Or {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_add_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Add(Add {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_sub_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Sub(Sub {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_cmpe_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpe(Cmpe {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_cmpa_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpa(Cmpa {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_cmpae_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: u32,
+        b: u32,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpae(Cmpae {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(Word(a)),
+            }),
+            b,
+        )
+    }
+
+    fn mov_cmpg_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpg(Cmpg {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_cmpge_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Cmpge(Cmpge {
+                ri: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_mull_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Mull(Mull {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_umulh_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Mull(Mull {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_smullh_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::SMulh(SMulh {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_umod_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::UMod(UMod {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_udiv_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::UDiv(UDiv {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_shr_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Shr(Shr {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mov_shl_answer<const WORD_BITS: u32, const REG_COUNT: usize>(
+        a: Word,
+        b: Word,
+    ) -> Trace<WORD_BITS, REG_COUNT> {
+        mov_ins_answer(
+            Instruction::Shl(Shl {
+                ri: RegName(1),
+                rj: RegName(0),
+                a: ImmediateOrRegName::Immediate(a),
+            }),
+            b.0,
+        )
+    }
+
+    fn mock_prover_test<const WORD_BITS: u32, const REG_COUNT: usize>(
+        trace: Trace<WORD_BITS, REG_COUNT>,
+    ) {
+        let k = 2 + WORD_BITS / 2;
+        let circuit = TinyRamCircuit::<WORD_BITS, REG_COUNT> { trace: Some(trace) };
+
+        // Given the correct public input, our circuit will verify.
+        let prover = MockProver::<Fp>::run(k, &circuit, vec![]).unwrap();
+        prover.assert_satisfied();
+    }
+
+    #[test]
+    fn two_programs() {
+        let ans = {
+            let ans = Program(vec![Instruction::Answer(Answer {
+                a: ImmediateOrRegName::Immediate(Word(1)),
+            })]);
+            let ans = ans.eval::<8, 8>(Mem::new(&[], &[]));
+            assert_eq!(ans.ans.0, 1);
+            ans
+        };
+
+        let l_and_ans = load_and_answer::<8, 8>(1, 2);
+        assert_eq!(l_and_ans.ans.0, 1);
+
+        gen_proofs_and_verify::<8, _>(vec![
+            (
+                TinyRamCircuit {
+                    trace: Some(ans.clone()),
+                },
+                vec![],
+            ),
+            (
+                TinyRamCircuit {
+                    trace: Some(l_and_ans.clone()),
+                },
+                vec![],
+            ),
+        ]);
+    }
+
+    prop_compose! {
+      fn signed_word(word_bits: u32)
+         (a in -(2i32.pow(word_bits - 1))..2i32.pow(word_bits - 1) - 1)
+      -> Word {
+          Word::try_from_signed(a, word_bits).unwrap()
+      }
+    }
+
+    proptest! {
+        #[test]
+        fn load_and_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(load_and_answer(a, b))
+        }
+
+        #[test]
+        fn mov_and_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_and_answer(a, b))
+        }
+
+        #[test]
+        fn mov_xor_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_xor_answer(a, b))
+        }
+
+        #[test]
+        fn mov_or_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_or_answer(a, b))
+        }
+
+        #[test]
+        fn mov_add_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_add_answer(a, b))
+        }
+
+        #[test]
+        fn mov_sub_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_sub_answer(a, b))
+        }
+
+        #[test]
+        fn mov_mull_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_mull_answer(a, b))
+        }
+
+        #[test]
+        fn mov_umulh_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_umulh_answer(a, b))
+        }
+
+        #[test]
+        fn mov_umod_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_umod_answer(a, b))
+        }
+
+        #[test]
+        fn mov_udiv_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_udiv_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpe_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpe_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpa_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpa_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpae_answer_mock_prover(a in 0..2u32.pow(8), b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_cmpae_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpg_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_cmpg_answer(a, b))
+        }
+
+        #[test]
+        fn mov_cmpge_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_cmpge_answer(a, b))
+        }
+
+        #[test]
+        fn mov_smullh_answer_mock_prover(a in signed_word(8), b in signed_word(8)) {
+            mock_prover_test::<8, 8>(mov_smullh_answer(a, b))
+        }
+
+        #[test]
+        fn mov_shl_answer_mock_prover(a in 0..8u32, b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_shl_answer(Word(a), Word(b)))
+        }
+
+        #[test]
+        fn mov_shr_answer_mock_prover(a in 0..8u32, b in 0..2u32.pow(8)) {
+            mock_prover_test::<8, 8>(mov_shr_answer(Word(a), Word(b)))
+        }
     }
 }

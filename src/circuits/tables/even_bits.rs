@@ -47,7 +47,7 @@ pub trait HasEvenBits<const WORD_BITS: u32> {
 pub struct EvenBitsTable<const WORD_BITS: u32>(TableColumn);
 
 impl<const WORD_BITS: u32> EvenBitsTable<WORD_BITS> {
-    pub fn new<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
+    pub fn configure<F: FieldExt>(meta: &mut ConstraintSystem<F>) -> Self {
         Self(meta.lookup_table_column())
     }
 
@@ -328,7 +328,7 @@ mod mem_test {
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let word = meta.advice_column();
             let s_table = meta.complex_selector();
-            let even_bits = EvenBitsTable::new(meta);
+            let even_bits = EvenBitsTable::configure(meta);
 
             EvenBitsConfig::<WORD_BITS>::configure(
                 meta,
