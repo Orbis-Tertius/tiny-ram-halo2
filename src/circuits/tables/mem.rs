@@ -130,6 +130,11 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
 
             let init_next = meta.query_advice(init, Rotation::next());
 
+            let load = meta.query_advice(load, Rotation::cur());
+
+            let value_next = meta.query_advice(value, Rotation::next());
+            let value = meta.query_advice(value, Rotation::cur());
+
             // The table is sorted by address and then time.
             // `init = 0` or store can be the start of a access trace over an address.
             Constraints::with_selector(
@@ -142,6 +147,9 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
                     // The next row may be an initial value from the tape
                     // if it's the start of an access trace.
                     end_cycle * init_next,
+
+                    // The value cannot change on loads
+                    load * (value_next - value),
                 ],
             )
         });
