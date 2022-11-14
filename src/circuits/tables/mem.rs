@@ -124,7 +124,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
                 meta.query_advice(time_increment.word, Rotation::next());
 
             let same_cycle = address_next.clone() - address.clone();
-            let end_cycle = address_next - address - one.clone() - address_increment;
+            let end_cycle = address_next - address - one - address_increment;
 
             let time_sorted = time_next - time - time_increment;
 
@@ -139,9 +139,9 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
                     end_cycle.clone() * same_cycle,
                     // The next row may occur at a latter time if it's in a different access trace.
                     end_cycle.clone() * time_sorted,
-                    // The next row may be a initial value from the tape
+                    // The next row may be an initial value from the tape
                     // if it's the start of an access trace.
-                    // end_cycle * (init_next - one),
+                    end_cycle * init_next,
                 ],
             )
         });
@@ -210,7 +210,6 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
                         self.assign_time(&mut region, offset, prior_time, time_val)?;
                         prior_time = time_val;
 
-                        dbg!(address_val);
                         assert_eq!(address_val, &access.address());
                         region.assign_advice(
                             || format!("address: {}", address_val.0),
@@ -219,9 +218,8 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
                             || Value::known(F::from(u64::from(address_val.0))),
                         )?;
 
-                        let address_increment_val = (dbg!(address_val.0)
-                            - dbg!(prior_address))
-                        .saturating_sub(1);
+                        let address_increment_val =
+                            (address_val.0 - prior_address).saturating_sub(1);
                         let address_increment_val_f =
                             F::from(u64::from(address_increment_val));
                         region.assign_advice(
@@ -296,7 +294,7 @@ impl<const WORD_BITS: u32, F: FieldExt> MemChip<F, WORD_BITS> {
             || Value::known(F::from(time_val)),
         )?;
 
-        let time_increment_val = (time_val - prior_time).saturating_sub(1);
+        let time_increment_val = time_val.saturating_sub(prior_time);
         let time_increment_val_f = F::from(time_increment_val);
         region.assign_advice(
             || format!("time_increment: {}", time_increment_val),
@@ -344,9 +342,7 @@ mod mem_tests {
 
         fn configure(meta: &mut ConstraintSystem<F>) -> Self::Config {
             let even_bits = EvenBitsTable::configure(meta);
-            let prog_config = MemChip::<F, WORD_BITS>::configure(meta, even_bits);
-
-            prog_config
+            MemChip::<F, WORD_BITS>::configure(meta, even_bits)
         }
 
         fn synthesize(
@@ -665,15 +661,10 @@ mod mem_tests {
         assert_eq!(l_and_ans.ans.0, 1);
 
         gen_proofs_and_verify::<8, _>(vec![
+            (TinyRamCircuit { trace: Some(ans) }, vec![]),
             (
                 TinyRamCircuit {
-                    trace: Some(ans.clone()),
-                },
-                vec![],
-            ),
-            (
-                TinyRamCircuit {
-                    trace: Some(l_and_ans.clone()),
+                    trace: Some(l_and_ans),
                 },
                 vec![],
             ),
