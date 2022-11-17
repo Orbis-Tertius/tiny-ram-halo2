@@ -14,7 +14,6 @@ pub mod mem;
 pub mod pow;
 pub mod prog;
 pub mod signed;
-pub mod tapes;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TableSelector {
