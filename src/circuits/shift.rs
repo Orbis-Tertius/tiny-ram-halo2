@@ -285,7 +285,7 @@ impl<const WORD_BITS: u32, const SHIFT_RIGHT: bool> Circuit<Fp>
         let flag = meta.advice_column();
         meta.enable_equality(flag);
 
-        let even_bits = EvenBitsTable::new(meta);
+        let even_bits = EvenBitsTable::configure(meta);
 
         let a_shift = meta.advice_column();
         let a_power = meta.advice_column();

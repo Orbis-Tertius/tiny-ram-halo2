@@ -47,7 +47,7 @@ pub fn program_instance<
     assert!(matches!(last_inst, Instruction::Answer(_)));
     assert!(program.0.len() <= max_program_len);
 
-    for _ in 0..(program.0.len() - max_program_len) {
+    for _ in 0..(max_program_len - program.0.len()) {
         // Fill the remainder of the program space by repeating the terminal instruction (Answer).
         program.0.push(last_inst);
     }
@@ -221,7 +221,7 @@ impl<const WORD_BITS: u32, const REG_COUNT: usize> ProgConfig<WORD_BITS, REG_COU
                         || "pc",
                         self.pc,
                         offset,
-                        || Value::known(F::from(offset as u64 + 1)),
+                        || Value::known(F::from(offset as u64)),
                     )?;
                 }
 
